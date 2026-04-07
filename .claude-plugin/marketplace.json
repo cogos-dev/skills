@@ -1,0 +1,41 @@
+{
+  "name": "cogos-skills",
+  "description": "Skills, agents, and modality integrations for CogOS — the cognitive operating system for AI development",
+  "owner": {
+    "name": "cogos-dev",
+    "email": "chazmaniandinkle@gmail.com"
+  },
+  "metadata": {
+    "version": "0.1.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "cogos-workflow",
+      "source": "./plugins/cogos-workflow",
+      "description": "Phased planning, execution, and critical review skills for complex multi-step development tasks",
+      "version": "0.1.0",
+      "category": "development",
+      "keywords": ["planning", "execution", "review", "multi-agent"],
+      "homepage": "https://github.com/cogos-dev/skills"
+    },
+    {
+      "name": "cogos-voice",
+      "source": "./plugins/cogos-voice",
+      "description": "Voice modality integration via Mod³ — dual-channel protocol for conversational AI development",
+      "version": "0.1.0",
+      "category": "productivity",
+      "keywords": ["voice", "tts", "modality", "mod3"],
+      "homepage": "https://github.com/cogos-dev/mod3"
+    },
+    {
+      "name": "cogos-research",
+      "source": "./plugins/cogos-research",
+      "description": "Structured research skills — literature review, experiment design, and interdisciplinary synthesis",
+      "version": "0.1.0",
+      "category": "development",
+      "keywords": ["research", "literature", "experiments", "synthesis"],
+      "homepage": "https://github.com/cogos-dev/research"
+    }
+  ]
+}
