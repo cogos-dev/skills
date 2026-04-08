@@ -36,6 +36,15 @@
       "category": "development",
       "keywords": ["research", "literature", "experiments", "synthesis"],
       "homepage": "https://github.com/cogos-dev/research"
+    },
+    {
+      "name": "cogos-dev-tools",
+      "source": "./plugins/cogos-dev-tools",
+      "description": "Development methodology skills — code quality, systems architecture, technical writing, and git forensics",
+      "version": "0.1.0",
+      "category": "development",
+      "keywords": ["code-quality", "architecture", "documentation", "git"],
+      "homepage": "https://github.com/cogos-dev/skills"
     }
   ]
 }

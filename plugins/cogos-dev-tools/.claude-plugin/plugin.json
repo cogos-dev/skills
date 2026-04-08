@@ -1,0 +1,10 @@
+{
+  "name": "cogos-dev-tools",
+  "description": "Development methodology skills — code quality, systems architecture, technical writing, and git forensics",
+  "version": "0.1.0",
+  "author": { "name": "cogos-dev" },
+  "homepage": "https://github.com/cogos-dev/skills",
+  "repository": "https://github.com/cogos-dev/skills",
+  "license": "MIT",
+  "keywords": ["code-quality", "architecture", "documentation", "git", "development"]
+}
