@@ -18,15 +18,19 @@ Then install individual plugins:
 /plugin install cogos-workflow@cogos-skills
 /plugin install cogos-voice@cogos-skills
 /plugin install cogos-research@cogos-skills
+/plugin install cogos-dev-tools@cogos-skills
 ```
 
 ## Plugins
 
-| Plugin | What it does | Skills |
-|--------|-------------|--------|
-| **cogos-workflow** | Phased planning and execution for complex tasks | plan-phases, execute-plan, critical-review |
-| **cogos-voice** | Voice modality via Mod³ on Apple Silicon | voice |
-| **cogos-research** | Structured research and experiment design | literature-research, experiment-design |
+| Plugin | What it does | Skills | Count |
+|--------|-------------|--------|-------|
+| **cogos-workflow** | Phased planning and execution for complex tasks | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective | 7 |
+| **cogos-voice** | Voice modality via Mod³ on Apple Silicon | voice | 1 |
+| **cogos-research** | Structured research and experiment design | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering | 5 |
+| **cogos-dev-tools** | Developer tooling and code quality | code-quality, systems-architecture, technical-writing, experiment-design | 4 |
+
+**Total: 17 skills across 4 plugins.**
 
 ## Agent Skills Compatibility
 
@@ -41,7 +45,8 @@ skills/
 └── plugins/
     ├── cogos-workflow/        # Planning + execution + review
     ├── cogos-voice/           # Voice modality (Mod³)
-    └── cogos-research/        # Research methodology
+    ├── cogos-research/        # Research methodology
+    └── cogos-dev-tools/       # Developer tooling
 ```
 
 Each plugin follows the standard structure:
