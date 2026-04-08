@@ -28,7 +28,7 @@ Then install individual plugins:
 | **cogos-workflow** | Phased planning and execution for complex tasks | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective | 7 |
 | **cogos-voice** | Voice modality via Mod³ on Apple Silicon | voice | 1 |
 | **cogos-research** | Structured research and experiment design | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering | 5 |
-| **cogos-dev-tools** | Developer tooling and code quality | code-quality, systems-architecture, technical-writing, experiment-design | 4 |
+| **cogos-dev-tools** | Developer tooling and code quality | code-quality, git-forensics, systems-architecture, technical-writing | 4 |
 
 **Total: 17 skills across 4 plugins.**
 
