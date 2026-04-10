@@ -1,8 +1,6 @@
 # CogOS Skills
 
-> Part of the [CogOS ecosystem](https://github.com/cogos-dev) — what it **CAN DO**
-
-A Claude Code plugin marketplace and Agent Skills collection for CogOS development workflows.
+Claude Code plugins for productivity, research, creative tools, and agent skills.
 
 ## Installation
 
