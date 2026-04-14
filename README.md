@@ -1,67 +1,45 @@
 # CogOS Skills
 
-Claude Code plugins for productivity, research, creative tools, and agent skills.
+Portable skill definitions for Claude Code and compatible AI agents.
 
-## Installation
+Each skill is a `SKILL.md` file — a structured prompt that gives an agent specialized knowledge for a specific domain. There is no code to install; you copy the SKILL.md into your project's `.claude/skills/` directory.
 
-Add this marketplace to Claude Code:
+## Usage
 
-```shell
-/plugin marketplace add cogos-dev/skills
+To use a skill, copy its `SKILL.md` file into your project:
+
+```bash
+# Example: add the plan-phases skill
+mkdir -p .claude/skills/plan-phases
+cp plugins/cogos-workflow/skills/plan-phases/SKILL.md .claude/skills/plan-phases/SKILL.md
 ```
 
-Then install individual plugins:
+Claude Code automatically loads skills from `.claude/skills/*/SKILL.md` when they match the conversation context.
 
-```shell
-/plugin install cogos-workflow@cogos-skills
-/plugin install cogos-voice@cogos-skills
-/plugin install cogos-research@cogos-skills
-/plugin install cogos-dev-tools@cogos-skills
-```
+## Available Skills
 
-## Plugins
+| Category | Skills | Description |
+|----------|--------|-------------|
+| **Workflow** | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective | Phased planning, parallel execution, deliberation |
+| **Research** | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering, inference-cascade | Structured research methodology |
+| **Voice** | voice | Voice modality via Mod3 on Apple Silicon |
+| **Dev Tools** | git-forensics, technical-writing, code-quality, systems-architecture | Developer tooling and code quality |
 
-| Plugin | What it does | Skills | Count |
-|--------|-------------|--------|-------|
-| **cogos-workflow** | Phased planning and execution for complex tasks | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective | 7 |
-| **cogos-voice** | Voice modality via Mod³ on Apple Silicon | voice | 1 |
-| **cogos-research** | Structured research and experiment design | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering | 5 |
-| **cogos-dev-tools** | Developer tooling and code quality | code-quality, git-forensics, systems-architecture, technical-writing | 4 |
+**Total: 18 skills across 4 categories.**
 
-**Total: 17 skills across 4 plugins.**
+## Format
 
-## Agent Skills Compatibility
-
-All skills in this marketplace follow the [Agent Skills](https://agentskills.io) open standard. The `SKILL.md` files work in any compatible agent product (Claude Code, Cursor, VS Code Copilot, Gemini CLI, and others). The Claude Code plugin wrapper adds hooks, MCP server configs, and agents on top.
+Each skill follows the [Agent Skills](https://agentskills.io) open standard. The `SKILL.md` format works in Claude Code, Cursor, VS Code Copilot, Gemini CLI, and other compatible agents.
 
 ## Structure
 
 ```
-skills/
-├── .claude-plugin/
-│   └── marketplace.json      # Plugin registry
-└── plugins/
-    ├── cogos-workflow/        # Planning + execution + review
-    ├── cogos-voice/           # Voice modality (Mod³)
-    ├── cogos-research/        # Research methodology
-    └── cogos-dev-tools/       # Developer tooling
+plugins/
+├── cogos-workflow/skills/       # Planning + execution + review
+├── cogos-voice/skills/          # Voice modality (Mod3)
+├── cogos-research/skills/       # Research methodology
+└── cogos-dev-tools/skills/      # Developer tooling
 ```
-
-Each plugin follows the standard structure:
-
-```
-plugin-name/
-├── .claude-plugin/
-│   └── plugin.json           # Plugin metadata
-├── skills/
-│   └── skill-name/
-│       └── SKILL.md          # Agent Skills format
-└── ...                       # Optional: agents/, hooks/, .mcp.json
-```
-
-## Creating Skills
-
-See the [Agent Skills specification](https://agentskills.io/specification) for the SKILL.md format, or use the [template](https://github.com/anthropics/skills/tree/main/template) as a starting point.
 
 ## License
 
