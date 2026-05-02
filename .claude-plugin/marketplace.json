@@ -16,7 +16,12 @@
       "description": "Phased planning, execution, and critical review skills for complex multi-step development tasks",
       "version": "0.1.0",
       "category": "development",
-      "keywords": ["planning", "execution", "review", "multi-agent"],
+      "keywords": [
+        "planning",
+        "execution",
+        "review",
+        "multi-agent"
+      ],
       "homepage": "https://github.com/cogos-dev/skills"
     },
     {
@@ -25,7 +30,12 @@
       "description": "Voice modality integration via Mod³ — dual-channel protocol for conversational AI development",
       "version": "0.1.0",
       "category": "productivity",
-      "keywords": ["voice", "tts", "modality", "mod3"],
+      "keywords": [
+        "voice",
+        "tts",
+        "modality",
+        "mod3"
+      ],
       "homepage": "https://github.com/cogos-dev/mod3"
     },
     {
@@ -34,7 +44,12 @@
       "description": "Structured research skills — literature review, experiment design, and interdisciplinary synthesis",
       "version": "0.1.0",
       "category": "development",
-      "keywords": ["research", "literature", "experiments", "synthesis"],
+      "keywords": [
+        "research",
+        "literature",
+        "experiments",
+        "synthesis"
+      ],
       "homepage": "https://github.com/cogos-dev/research"
     },
     {
@@ -43,7 +58,27 @@
       "description": "Development methodology skills — code quality, systems architecture, technical writing, and git forensics",
       "version": "0.1.0",
       "category": "development",
-      "keywords": ["code-quality", "architecture", "documentation", "git"],
+      "keywords": [
+        "code-quality",
+        "architecture",
+        "documentation",
+        "git"
+      ],
+      "homepage": "https://github.com/cogos-dev/skills"
+    },
+    {
+      "name": "cogos-org",
+      "source": "./plugins/cogos-org",
+      "description": "Org-management skills for the cogos-dev GitHub org: PR triage, issue triage, fork sync. Read-only by default.",
+      "version": "0.1.0",
+      "category": "development",
+      "keywords": [
+        "github",
+        "org-management",
+        "triage",
+        "fork-sync",
+        "gh-cli"
+      ],
       "homepage": "https://github.com/cogos-dev/skills"
     }
   ]
