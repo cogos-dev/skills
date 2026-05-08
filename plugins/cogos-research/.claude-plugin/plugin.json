@@ -3,10 +3,10 @@
   "description": "Structured research skills — literature review, experiment design, and interdisciplinary synthesis",
   "version": "0.1.0",
   "author": {
-    "name": "cogos-dev"
+    "name": "myrgic"
   },
-  "homepage": "https://github.com/cogos-dev/research",
-  "repository": "https://github.com/cogos-dev/skills",
+  "homepage": "https://github.com/myrgic/research",
+  "repository": "https://github.com/myrgic/skills",
   "license": "MIT",
   "keywords": ["research", "literature", "experiments", "synthesis", "academic"]
 }

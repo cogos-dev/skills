@@ -1,0 +1,12 @@
+{
+  "name": "cogos-org",
+  "description": "Org-management skills for the cogos-dev GitHub org: PR triage, issue triage, fork sync. Read-only by default.",
+  "version": "0.1.0",
+  "author": {
+    "name": "myrgic"
+  },
+  "homepage": "https://github.com/myrgic/skills",
+  "repository": "https://github.com/myrgic/skills",
+  "license": "MIT",
+  "keywords": ["github", "org-management", "triage", "fork-sync", "gh-cli"]
+}

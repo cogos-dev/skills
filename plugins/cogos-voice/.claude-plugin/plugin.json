@@ -3,10 +3,10 @@
   "description": "Voice modality integration via Mod³ — dual-channel protocol for conversational AI development",
   "version": "0.1.0",
   "author": {
-    "name": "cogos-dev"
+    "name": "myrgic"
   },
-  "homepage": "https://github.com/cogos-dev/mod3",
-  "repository": "https://github.com/cogos-dev/skills",
+  "homepage": "https://github.com/myrgic/mod3",
+  "repository": "https://github.com/myrgic/skills",
   "license": "MIT",
   "keywords": ["voice", "tts", "stt", "modality", "mod3", "apple-silicon"]
 }
