@@ -3,10 +3,10 @@
   "description": "Phased planning, execution, and critical review skills for complex multi-step development tasks",
   "version": "0.1.0",
   "author": {
-    "name": "cogos-dev"
+    "name": "myrgic"
   },
-  "homepage": "https://github.com/cogos-dev/skills",
-  "repository": "https://github.com/cogos-dev/skills",
+  "homepage": "https://github.com/myrgic/skills",
+  "repository": "https://github.com/myrgic/skills",
   "license": "MIT",
   "keywords": ["planning", "execution", "review", "multi-agent", "workflow"]
 }

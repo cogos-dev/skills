@@ -5,7 +5,7 @@ Thanks for your interest. This repo is a collection of portable skill definition
 ## Development setup
 
 ```sh
-git clone https://github.com/cogos-dev/skills.git
+git clone https://github.com/myrgic/skills.git
 cd skills
 ```
 
@@ -43,7 +43,7 @@ Keep the change scoped. If you're rewriting a major section, bump the `version` 
 
 ## Reporting issues
 
-Use the org-level [Bug Report](https://github.com/cogos-dev/skills/issues/new?template=bug.yml) or [Feature Request](https://github.com/cogos-dev/skills/issues/new?template=feature.yml) forms.
+Use the org-level [Bug Report](https://github.com/myrgic/skills/issues/new?template=bug.yml) or [Feature Request](https://github.com/myrgic/skills/issues/new?template=feature.yml) forms.
 
 ## License
 
