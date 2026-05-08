@@ -67,16 +67,15 @@
       "homepage": "https://github.com/myrgic/skills"
     },
     {
-      "name": "cogos-org",
-      "source": "./plugins/cogos-org",
-      "description": "Org-management skills for the cogos-dev GitHub org: PR triage, issue triage, fork sync. Read-only by default.",
+      "name": "myrgic-org",
+      "source": "./plugins/myrgic-org",
+      "description": "Org-management skills for the myrgic GitHub org: PR triage, issue triage. Read-only by default.",
       "version": "0.1.0",
       "category": "development",
       "keywords": [
         "github",
         "org-management",
         "triage",
-        "fork-sync",
         "gh-cli"
       ],
       "homepage": "https://github.com/myrgic/skills"
