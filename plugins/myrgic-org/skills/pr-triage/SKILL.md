@@ -1,11 +1,11 @@
 ---
 name: pr-triage
-description: Enumerate, classify, and summarize open pull requests across the cogos-dev GitHub org. Use when asked to triage PRs, check what needs review, audit open work, or surface stale or blocked PRs across repos.
+description: Enumerate, classify, and summarize open pull requests across the myrgic GitHub org. Use when asked to triage PRs, check what needs review, audit open work, or surface stale or blocked PRs across repos.
 ---
 
 # Skill: pr-triage
 
-Produce a classified, grouped summary of open pull requests across the cogos-dev GitHub org. This skill is read-only. It does not merge, close, approve, or edit any PR.
+Produce a classified, grouped summary of open pull requests across the myrgic GitHub org. This skill is read-only. It does not merge, close, approve, or edit any PR.
 
 ## Active Repos
 
@@ -13,16 +13,16 @@ Query these repos. Skip archived repos (desktop, openclaw-plugin) unless the req
 
 | Repo | Notes |
 |------|-------|
-| cogos-dev/cogos | kernel |
-| cogos-dev/constellation | |
-| cogos-dev/mod3 | |
-| cogos-dev/charts | |
-| cogos-dev/skills | |
-| cogos-dev/research | |
-| cogos-dev/cogops | private |
-| cogos-dev/docs | private |
-| cogos-dev/cog-sandbox-mcp | |
-| cogos-dev/.github | org governance |
+| myrgic/cogos | kernel |
+| myrgic/constellation | |
+| myrgic/mod3 | |
+| myrgic/charts | |
+| myrgic/skills | |
+| myrgic/research | |
+| myrgic/cogops | private |
+| myrgic/docs | private |
+| myrgic/cog-sandbox-mcp | |
+| myrgic/.github | org governance |
 
 ## Step 1: Enumerate
 
@@ -31,7 +31,7 @@ Run one of the following. Both produce equivalent data; pick based on context:
 **Per-repo (precise, handles private repos):**
 ```
 gh pr list \
-  --repo cogos-dev/<repo> \
+  --repo myrgic/<repo> \
   --state open \
   --json number,title,author,createdAt,isDraft,mergeable,reviewDecision,labels,comments,updatedAt
 ```
@@ -39,7 +39,7 @@ Repeat for each repo in the active list above.
 
 **Flat view (fast, public repos only):**
 ```
-gh search prs --owner cogos-dev --state open \
+gh search prs --owner myrgic --state open \
   --json number,title,author,createdAt,isDraft,repository
 ```
 Follow up with per-repo queries for cogops and docs, which are private and not returned by `gh search prs`.
@@ -90,7 +90,7 @@ Before the grouped sections, produce a "Notable" block listing PRs that match an
 - **Age > 14 days**: any open PR not yet in stale-or-abandoned but older than 14 days.
 - **Draft marked ready**: draft PRs whose title or body contains "ready for review", "ready to merge", or similar phrasing.
 - **Governance-sensitive**: PRs touching `.github/profile/`, `docs/`, or any file that directly controls the org's public identity or published documentation. Flag these for extra care before merging.
-- **First-time contributor**: PR author has no other merged or open PR across any cogos-dev repo (check with `gh search prs --owner cogos-dev --author <author> --state all`). Label the entry `[first-time contributor]`.
+- **First-time contributor**: PR author has no other merged or open PR across any myrgic repo (check with `gh search prs --owner myrgic --author <author> --state all`). Label the entry `[first-time contributor]`.
 
 If Notable is empty, omit the section entirely.
 
