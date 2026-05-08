@@ -1,11 +1,11 @@
 ---
 name: issue-triage
-description: Enumerate, classify, and surface actionable open issues across cogos-dev repos. Use when the issue backlog needs review, before sprint planning, or when onboarding contributors.
+description: Enumerate, classify, and surface actionable open issues across myrgic repos. Use when the issue backlog needs review, before sprint planning, or when onboarding contributors.
 ---
 
 # Issue Triage
 
-Read-only audit of open issues across active cogos-dev repositories. Produces a classified inventory, flags untouched and contributor-ready items, and ends with a summary and label recommendations. No write operations are performed.
+Read-only audit of open issues across active myrgic repositories. Produces a classified inventory, flags untouched and contributor-ready items, and ends with a summary and label recommendations. No write operations are performed.
 
 ## Scope
 
@@ -23,7 +23,7 @@ For each active repo, run:
 
 ```bash
 gh issue list \
-  --repo cogos-dev/<repo> \
+  --repo myrgic/<repo> \
   --state open \
   --json number,title,author,createdAt,labels,comments,assignees \
   --limit 200
@@ -33,7 +33,7 @@ Alternatively, enumerate across the org in one pass:
 
 ```bash
 gh search issues \
-  --owner cogos-dev \
+  --owner myrgic \
   --state open \
   --json number,repository,title,author,createdAt,labels,comments,assignees \
   --limit 500
@@ -111,7 +111,7 @@ Issues labeled `good first issue` or `help wanted`, or classified `good-first-is
 For each open issue, check for title or body keyword overlap with other open issues and with issues closed in the past 90 days:
 
 ```bash
-gh search issues --owner cogos-dev "<keyword from title>"
+gh search issues --owner myrgic "<keyword from title>"
 ```
 
 Extract 2–4 keywords from each title. If a match appears, list both issues and note the overlap. Do NOT auto-classify as duplicate; flag only.
