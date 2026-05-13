@@ -12,6 +12,8 @@ Commit-message convention: [Conventional Commits](https://www.conventionalcommit
 
 ### Added
 
+- New `cogos-architecture` plugin with the `corpus-cross-reference` skill — automatically cross-checks a proposed RFC or ADR against the existing substrate corpus (composition gaps, conflicts, prior art, frontmatter validation, numbering). Handles both corpus numbering schemes (cog workspace 3-digit, cogos repo 4-digit). Includes `resources/canonical-frontmatter-shapes.md`, `resources/refs-vocabulary.md`, `resources/cross-check-heuristics.md`, and `tools/list_corpus.sh`.
+
 ### Changed
 
 ### Fixed
