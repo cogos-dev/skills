@@ -3,6 +3,8 @@ name: corpus-cross-reference
 description: Cross-check a proposed RFC or ADR against the existing substrate corpus. Surfaces composition gaps, conflicts, prior art, frontmatter validation, and numbering issues. Runs at proposal time — invoke manually today; auto-fires on RFC/ADR PR-open via a future GitHub Actions hook. Triggers on /corpus-cross-reference, "cross-reference the corpus", "check this RFC against existing", "what does the corpus already say about", or when opening an RFC/ADR PR and wanting a composition review.
 version: 0.1.0
 allowed-tools: Read, Bash(find:*) Bash(grep:*) Bash(git:*) Bash(gh:*)
+canonical_source: "cog://workspaces/cog/.claude/skills/corpus-cross-reference/SKILL.md"
+projection_note: "This file is a marketplace projection. The canonical source lives in the cog workspace at ~/workspaces/cog/.claude/skills/corpus-cross-reference/SKILL.md. Changes should be made at the canonical source and projected here."
 ---
 
 # Corpus Cross-Reference
