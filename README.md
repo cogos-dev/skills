@@ -24,8 +24,9 @@ Claude Code automatically loads skills from `.claude/skills/*/SKILL.md` when the
 | **Research** | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering, inference-cascade | Structured research methodology |
 | **Voice** | voice | Voice modality via Mod3 on Apple Silicon |
 | **Dev Tools** | git-forensics, technical-writing, code-quality, systems-architecture | Developer tooling and code quality |
+| **Architecture** | corpus-cross-reference | CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against existing substrate corpus |
 
-**Total: 18 skills across 4 categories.**
+**Total: 19 skills across 5 categories.**
 
 ## Format
 
@@ -38,7 +39,8 @@ plugins/
 ├── cogos-workflow/skills/       # Planning + execution + review
 ├── cogos-voice/skills/          # Voice modality (Mod3)
 ├── cogos-research/skills/       # Research methodology
-└── cogos-dev-tools/skills/      # Developer tooling
+├── cogos-dev-tools/skills/      # Developer tooling
+└── cogos-architecture/skills/   # Architecture corpus hygiene (ADR/RFC cross-reference)
 ```
 
 ## License
