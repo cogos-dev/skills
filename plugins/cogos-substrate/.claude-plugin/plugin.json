@@ -1,0 +1,19 @@
+{
+  "name": "cogos-substrate",
+  "description": "Orientation and deep-context skills for working within the CogOS/Myrgic substrate — workspace layout, identity system, prior-work archaeology, and structural discourse conventions.",
+  "version": "0.1.0",
+  "author": {
+    "name": "myrgic"
+  },
+  "homepage": "https://github.com/myrgic/plugins",
+  "repository": "https://github.com/myrgic/plugins",
+  "license": "MIT",
+  "keywords": [
+    "cogos",
+    "myrgic",
+    "substrate",
+    "workspace",
+    "identity",
+    "research"
+  ]
+}
