@@ -48,6 +48,48 @@ Tier 1: parent (Opus, running in conversation)
 - Opus remains at the conversation and synthesis layer only
 - Tier 1 → Tier 2 → Tier 3 is the practical depth ceiling; beyond three tiers, reasoning accountability degrades
 
+**Note on Tier 1 in Hermes:** In Hermes gateway sessions (Telegram, Discord, CLI), Tier 1 is typically Sonnet (the main model by default). The tier model still applies — dispatch Tier 2 workers with a lower-cost profile. The semantic is preserved; the model assignment is controlled by profile config. "Tier 1 is the calling context, whatever model is running there."
+
+---
+
+## Platform binding
+
+Both platforms support the orchestrate pattern. Use the syntax native to your environment.
+
+**Claude Code — dispatch the master:**
+```python
+Agent(
+    subagent_type="general-purpose",
+    model="claude-sonnet-4-6",           # MUST be explicit — Tier 2
+    description="Master orchestrator: <one-line task>",
+    prompt=MASTER_BRIEF,
+    run_in_background=True
+)
+```
+
+**Hermes — dispatch the master:**
+```python
+result = delegate_task(
+    goal=MASTER_BRIEF,
+    context="substrate pointers only",
+    role="orchestrator",   # enables nested dispatch
+    toolsets=["terminal", "file", "web"],
+)
+
+# For durable multi-step work that must survive session boundaries:
+# hermes kanban create 'task title' --profile sonnet --goal --goal-max-turns 20
+```
+
+**Tier → profile/model mapping:**
+
+| Tier | Role | Claude Code | Hermes |
+|------|------|-------------|--------|
+| Tier 1 | Calling context | Opus (claude-opus-4-8) | Main session model (default: Sonnet) |
+| Tier 2 | Master orchestrator / substantive workers | Sonnet (claude-sonnet-4-6) | profile=sonnet (or equivalent named profile) |
+| Tier 3 | Mechanical leaf tasks | Haiku (claude-haiku-4-5-20251001) | profile=haiku (or equivalent named profile) |
+
+These defaults are configurable. The tier abstraction survives the platform split.
+
 ---
 
 ## Procedure for Tier 1
@@ -85,6 +127,7 @@ Fill the master brief template (see `resources/master-brief-template.md`). The b
 
 ### 4. Dispatch
 
+**Claude Code:**
 ```python
 Agent(
     subagent_type="general-purpose",
@@ -92,6 +135,16 @@ Agent(
     description="Master orchestrator: <one-line task>",
     prompt=MASTER_BRIEF,
     run_in_background=True    # unless Tier 1 has nothing to do while waiting
+)
+```
+
+**Hermes:**
+```python
+result = delegate_task(
+    goal=MASTER_BRIEF,
+    context="substrate pointers only",
+    role="orchestrator",
+    toolsets=["terminal", "file", "web"],
 )
 ```
 
@@ -112,7 +165,8 @@ See `resources/master-brief-template.md` for the full copy-paste template. The e
 ```
 IDENTITY:
 You are a master orchestrator. Your responsibility is [scope of this batch].
-You are running as a Sonnet agent dispatched by an Opus parent.
+You are running as a Tier 2 agent dispatched by the Tier 1 calling context.
+(In Claude Code sessions: dispatched by an Opus parent. In Hermes sessions: dispatched by the main gateway session.)
 
 DIRECTIVE:
 [Operator's intent verbatim + explicit success criterion]
@@ -231,13 +285,15 @@ Workers have different authorization levels depending on what they touch. Encode
 
 **Letting workers spawn unbounded sub-dispatches** — set the sub-agent budget in the master brief. Workers should not fan out further without explicit authorization. "Dispatch one worker for X, not a fleet of sub-workers" is a valid constraint.
 
-**Recursing orchestrators past Tier 3** — Tier 1 (Opus) dispatches Tier 2 (Sonnet master), which dispatches Tier 3 (Sonnet/Haiku workers). Tier 4+ exists but becomes hard to reason about. Flag if you find yourself writing a "dispatch an orchestrator to orchestrate orchestrators" prompt.
+**Recursing orchestrators past Tier 3** — Tier 1 (calling context) dispatches Tier 2 (Sonnet master), which dispatches Tier 3 (Sonnet/Haiku workers). Tier 4+ exists but becomes hard to reason about. Flag if you find yourself writing a "dispatch an orchestrator to orchestrate orchestrators" prompt.
 
 **Omitting the commit instruction from implementation worker briefs** — agents leave work uncommitted unless explicitly told to commit. Always include "commit each logical change with a clean message" in any implementation worker's directive.
 
 ---
 
 ## Worked examples
+
+The examples below are accurate records from Claude Code sessions (Tier 1 = Opus). The pattern applies identically in Hermes — substitute `delegate_task(role='orchestrator')` for the `Agent(...)` calls and Hermes profiles for model names.
 
 ### Wave A — 7-worker storage and infrastructure sweep (2026-05-13)
 

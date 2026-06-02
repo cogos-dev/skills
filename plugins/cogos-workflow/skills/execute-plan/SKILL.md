@@ -104,6 +104,24 @@ Create TodoWrite entries for the current wave's tasks plus the gate. Do not wire
 
 For each wave, launch all unblocked tasks as parallel subagents in a **single message** with multiple Agent tool calls.
 
+**Claude Code — parallel fan-out:**
+Use multiple `Agent(...)` calls in a single message. Each worker is a separate subagent.
+
+**Hermes — parallel fan-out:**
+Use `delegate_task(tasks=[...])` with an array of task objects (up to 3 concurrent per default config). For larger waves, dispatch tasks sequentially or route through Kanban:
+
+```python
+# Hermes parallel fan-out (up to 3 concurrent)
+results = delegate_task(tasks=[
+    {"goal": BRIEF_1, "context": "...", "toolsets": ["terminal", "file"]},
+    {"goal": BRIEF_2, "context": "...", "toolsets": ["terminal", "file"]},
+    {"goal": BRIEF_3, "context": "...", "toolsets": ["web"]},
+])
+
+# For waves larger than 3, dispatch sequentially or use kanban:
+# hermes kanban create 'Wave N task' --profile sonnet --parent <plan-task-id>
+```
+
 **Role to subagent mapping:**
 
 | Plan Role | `subagent_type` | Capabilities | Notes |

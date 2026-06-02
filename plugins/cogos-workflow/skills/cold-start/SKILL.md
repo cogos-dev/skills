@@ -1,6 +1,6 @@
 ---
 name: cold-start
-description: Write a cold-start handoff document for a project, feature, or initiative. Creates a standalone briefing that allows any agent or human with zero prior context to understand the full picture and continue the work. Also invocable as /handoff.
+description: Write a cold-start handoff document for a project, feature, or initiative. Creates a standalone briefing that allows any agent or human with zero prior context to understand the full picture and continue the work.
 ---
 
 # Cold-Start Handoff
@@ -120,7 +120,7 @@ A reading list. 5-10 files, in the order they should be read, with one-line expl
 - **Link, don't inline.** The handoff is a map, not an encyclopedia. Point to full documents.
 - **Include the reasoning.** Decisions without reasoning are indistinguishable from arbitrary choices.
 - **Date it.** Cold-start documents decay. The reader needs to know how fresh the information is.
-- **Make it portable.** No vendor-specific assumptions. Works for any agent, any LLM, any human.
+- **Works across platforms.** Do not reference platform-specific invocations (/slash-commands, tool names) in the output document itself. Describe actions, not invocations. The document is written for any agent, any LLM, any human — assume nothing about the environment.
 
 ## Quality Check
 

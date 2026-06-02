@@ -26,7 +26,7 @@ This is a projection. See canonical_source above for the authoritative text.
 Hermes binding of the harness-agnostic `orchestrate` pattern. The pattern
 (tier discipline, pull-context dispatch, structured-verdict parse, dynamic
 round cap, operator-decisions break the loop) is the invariant. This skill
-binds it to delegate_task + Kanban + cron watchdog + webhook-wake.
+binds it to delegate_task + Kanban + webhook-wake.
 
 This skill is a THIN OVERLAY over delegate_task's orchestrator role.
 It does NOT rebuild the dispatch mechanism. It encodes the doctrine.

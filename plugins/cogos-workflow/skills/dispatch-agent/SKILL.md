@@ -1,16 +1,33 @@
 ---
 name: dispatch-agent
-description: Spawn, manage, and collect results from external coding agents. Abstracts over backend-specific CLIs (Codex, Claude Code, OpenCode) with a unified dispatch protocol for background inference, lifecycle management, and result verification. Use when delegating work to external agents or orchestrating multi-agent workflows.
+description: Spawn, manage, and collect results from subagents. In Hermes, primary dispatch is delegate_task; in Claude Code, primary dispatch is the Agent/Task tool. CLI backends (Codex, Claude Code, OpenCode) remain available for cross-agent work and isolation scenarios. Use when delegating work to subagents or orchestrating multi-agent workflows.
 allowed-tools: Bash(codex:*) Bash(claude:*) Bash(opencode:*)
 ---
 
 # Dispatch Agent Protocol
 
-Unified interface for spawning, managing, and collecting results from external coding agents. This protocol is backend-agnostic — all CLI-specific knowledge lives in adapter files loaded on demand.
+Unified interface for spawning, managing, and collecting results from subagents. This protocol is backend-agnostic.
 
-**Adapters:** `adapters/codex.md` | `adapters/claude-code.md` | `adapters/opencode.md`
+**Adapters (CLI backends):** `adapters/codex.md` | `adapters/claude-code.md` | `adapters/opencode.md`
 
-Load the appropriate adapter after selecting a backend. If no adapter exists for the chosen backend, the protocol still applies — just translate the abstract operations to the backend's native CLI.
+Load the appropriate adapter when using a CLI backend. The abstract operations below map to both native dispatch and CLI backends.
+
+---
+
+## 0. Platform Context
+
+The default dispatch mechanism depends on where this skill is running:
+
+**In Hermes (gateway sessions — Telegram, Discord, CLI):**
+- Primary dispatch: `delegate_task(goal, context, role, toolsets)` — synchronous, returns the result directly
+- CLI backends (codex, claude, opencode) are available via `terminal()` for cross-agent work or when process isolation is required, but are NOT the default dispatch path
+- For durable multi-step work that must survive session boundaries, use the Kanban board (`hermes kanban create ...`) instead of delegate_task
+
+**In Claude Code:**
+- Primary dispatch: the `Agent`/`Task` tool with `run_in_background=True` for parallel work
+- CLI backends remain for cross-backend calls (dispatching to Codex from Claude Code) and isolation requirements
+
+The abstract operations below (spawn/status/collect/cancel) apply in both environments. Hermes mappings are noted inline.
 
 ---
 
@@ -18,7 +35,11 @@ Load the appropriate adapter after selecting a backend. If no adapter exists for
 
 ### spawn(backend, prompt, config)
 
-Launch an external agent to perform a task.
+Launch a subagent to perform a task.
+
+**Hermes mapping:** `delegate_task(goal=prompt, context='substrate pointers only', toolsets=['terminal','file','web'], role='leaf'|'orchestrator')`
+
+**Claude Code mapping:** `Agent(subagent_type='general-purpose', model='...', prompt=BRIEF, run_in_background=True)`
 
 **Parameters:**
 - `backend` — which CLI to use (codex, claude-code, opencode)
@@ -44,6 +65,8 @@ Launch an external agent to perform a task.
 
 Check current state of a dispatched agent.
 
+**Hermes mapping:** No direct equivalent for synchronous `delegate_task` (result is the return value). For durable Kanban tasks: `hermes kanban show <task_id>`.
+
 **States:**
 - `running` — process still active
 - `completed` — exited 0, output available
@@ -64,6 +87,8 @@ Continue a previous agent session with additional context or instructions.
 
 Retrieve and verify results from a completed agent.
 
+**Hermes mapping:** `delegate_task` is synchronous — the result is the return value of the call. No separate collect step needed.
+
 **Flow:**
 1. Confirm status is `completed`
 2. Read stdout/output file
@@ -73,6 +98,8 @@ Retrieve and verify results from a completed agent.
 ### cancel(agent_id)
 
 Terminate a running agent.
+
+**Hermes mapping:** Not directly supported for synchronous `delegate_task`. For durable Kanban tasks: `hermes kanban archive <task_id>`.
 
 **Flow:**
 1. Send SIGTERM to process
@@ -107,9 +134,14 @@ When the user doesn't specify a backend, select based on this priority:
    - OpenCode: experimental, use only if explicitly requested
 3. **Availability** — use what's installed
 
-### When Running Inside Claude Code
+### Platform-Native Dispatch
 
-If this skill is invoked from within a Claude Code session, prefer the **Agent tool** (subagent spawning) over CLI dispatch for claude-code tasks. The Agent tool shares context, tools, and permissions natively — no serialization overhead.
+**In Hermes:** use `delegate_task` as the default dispatch surface. The `toolsets=` parameter maps to the abstract sandbox/permission model. CLI backends are available via `terminal()` for:
+- Cross-backend calls (dispatching to Codex from a Hermes session)
+- Isolation requirements (agent must not see current context)
+- Background execution that must outlive the current turn (use `terminal(background=True)` + Kanban for durable tracking)
+
+**In Claude Code:** prefer the `Agent` tool (subagent spawning) over CLI dispatch for claude-code tasks. The Agent tool shares context, tools, and permissions natively — no serialization overhead.
 
 Use CLI dispatch for:
 - Cross-backend calls (dispatching to Codex from Claude Code)
@@ -193,6 +225,8 @@ SCOPE: Do NOT {boundaries}
 | **read-only** | Read files, analyze code, produce output to stdout | Analysis, review, research |
 | **workspace-write** | Read + write files within the working directory | Code edits, file creation |
 | **full-access** | Read + write + network + system commands | Package install, git operations, API calls |
+
+**Hermes mapping:** The `toolsets=` parameter on `delegate_task` controls the capability surface. `['web']` for research/read-only, `['terminal','file']` for implementation, `['terminal','file','web']` for full-access tasks.
 
 ### Rules
 
