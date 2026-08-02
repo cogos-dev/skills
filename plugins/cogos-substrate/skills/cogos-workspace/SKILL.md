@@ -294,7 +294,7 @@ providers:
     transport: openai_chat
     key_env: ''
 ```
-Select with `model.provider: cogos`. The kernel routes to its configured providers (claude-code, lmstudio-eclipse, mlx-lm, ollama) per its own routing rules.
+Select with `model.provider: cogos`. The kernel routes to its configured providers (claude-code, lmstudio-gpu-node, mlx-lm, ollama) per its own routing rules.
 
 **MCP server** (`mcp_servers.cogos` in config.yaml):
 ```yaml
@@ -315,35 +315,35 @@ Exposes 12 `cogos_*` tools from the cog-sandbox-mcp bridge.
 
 ### Hermes Profiles for the Ecosystem
 
-Three-profile architecture for Chaz's setup:
+A typical multi-profile setup separates concerns by provider and role. Example shape:
 
 | Profile | Identity | Provider | Purpose |
 |---|---|---|---|
 | `default` | Hermes | Anthropic (cloud) | Ambient comms/gateway layer |
-| `cog` | Cog (from workspace) | CogOS → Eclipse 26B | Deep workspace / research work |
-| `darkstar` | Darkstar | TBD | Laptop hardware eigenform — machine identity node |
+| `cog` | Cog (from workspace) | CogOS → LAN inference node | Deep workspace / research work |
+| `<node-name>` | `<node-name>` | TBD | Hardware eigenform — a profile for the machine itself as an identity node, named after that machine |
 
 **Creating a profile:** `hermes profile create <name>` — creates `~/.hermes/profiles/<name>/` with its own `config.yaml`, `SOUL.md`, `skills/`, `memories/`, `sessions/`.
 
 **Restarting a named profile gateway:** `hermes gateway restart --profile <name>` (long flag) — NOT `hermes -p <name> gateway restart`. The short `-p` flag is for the `chat` subcommand; gateway lifecycle uses `--profile`.
 
-**Provider hot-swap (e.g. Eclipse → Sonnet):** Edit `model.default` and `model.provider` in `~/.hermes/profiles/<name>/config.yaml`, then `hermes gateway restart --profile <name>`. Keep the old provider block in `providers:` — it's inert when unselected and enables one-line rollback. Hermes resolves `anthropic` credentials from its credential store without a declared provider entry; set `api_key: ''`.
+**Provider hot-swap (e.g. a local LAN model → a cloud model):** Edit `model.default` and `model.provider` in `~/.hermes/profiles/<name>/config.yaml`, then `hermes gateway restart --profile <name>`. Keep the old provider block in `providers:` — it's inert when unselected and enables one-line rollback. Hermes resolves `anthropic` credentials from its credential store without a declared provider entry; set `api_key: ''`.
 
 **Access:** `hermes -p <name> chat` or `hermes profile alias <name> --name <alias>` for a wrapper script. Note: `cog` conflicts with the existing `/Users/slowbro/bin/cog` binary — use `hermes -p cog chat` directly.
 
-**Profile config for direct Eclipse access** (bypasses CogOS kernel routing):
+**Profile config for direct access to a LAN inference node** (bypasses CogOS kernel routing):
 ```yaml
 model:
-  default: google/gemma-4-26b-a4b
-  provider: cogos-eclipse
+  default: <your-local-model-id>
+  provider: cogos-gpu-node
 providers:
-  cogos-eclipse:
-    name: CogOS → Eclipse 26B
-    base_url: http://192.168.10.191:1234/v1
+  cogos-gpu-node:
+    name: CogOS → LAN inference node
+    base_url: http://<gpu-node-ip>:1234/v1
     transport: openai_chat
-    api_key: "<LMS_DESKTOP_API_TOKEN>"
+    api_key: "<your-lms-api-token>"
 ```
-Token lives in the kernel's launchd plist: `/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:LMS_DESKTOP_API_TOKEN" ~/Library/LaunchAgents/com.cogos.kernel.plist`
+If the node's LM Studio API requires a token, one common pattern is to store it in the same launchd plist that manages the kernel and read it out at config time: `/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:<YOUR_TOKEN_VAR>" ~/Library/LaunchAgents/com.cogos.kernel.plist`
 
 ### Authoring Hermes Agent Identities (SOUL.md)
 
@@ -351,15 +351,15 @@ SOUL.md is loaded fresh every message — it IS the identity. Key principles:
 
 1. **Name the harness, not the model.** "I am Hermes" not "I am Claude." The model is infrastructure; it can be swapped. The harness persists.
 2. **Establish the role in the ecosystem.** What layer is this agent? What does it own vs defer to others?
-3. **Name the other identities.** Cog (workspace eigenform), Darkstar (machine agent), etc. — so any model loaded here immediately knows the topology.
+3. **Name the other identities.** Cog (workspace eigenform), a machine-identity agent for the hardware it runs on, etc. — so any model loaded here immediately knows the topology.
 4. **Encode the disposition.** Intellectual honesty, opinions, brief-when-brief-is-right. Embed Chaz's collaboration expectations directly.
 5. **No model names.** Don't mention Claude, GPT, Gemma, etc. in identity files.
 
 For the `cog` profile SOUL.md: point at the canonical identity files in the workspace (`identity_cog_interface.md`, `claude-eigenform-continuity.cog.md`, `SOUL.md`) so any model loaded there reads the authoritative source rather than a copy.
 
-## Darkstar Node Identity
+## Node Identity
 
-**Darkstar** is the eigenform of the laptop hardware — not a service or persona, but the attractor the hardware embodies. The name is already in the CogOS URI scheme (ADR-067) as the canonical node example: `cog://workspace@darkstar/path`.
+A node in the CogOS constellation is not just a machine running the kernel — it has an **eigenform**: an identity the hardware's own dynamics reproduce, not a service account or a persona bolted on top. The CogOS URI scheme (ADR-067) has a node-scoped form for this: `cog://workspace@<node-name>/path`, where `<node-name>` is whatever you've named your machine's node identity.
 
 ### Node Initialization — Use `cog node init` First
 
@@ -373,17 +373,15 @@ Also implemented: `cog node start/stop/status/info/shells`. NOT yet implemented:
 
 **HarnessProvider CRD does NOT exist** as a CRD type anywhere in the codebase — it is pure greenfield. The term "HarnessProvider" appears in the codebase only in reference to inference routing providers (a different concept). The closest thing is `HarnessBindingCRD` (session→identity link, in-memory only).
 
-### Current State (as of May 2026) — INITIALIZED
+### What a Completed Node Initialization Looks Like
 
-Darkstar node initialization completed 2026-05-25:
+Once `cog node init` (or the manual sequence it wraps) has run for a node — call it `<node-name>` — expect:
 
-- **`~/.cog/node/identity.yaml`** — renamed to `darkstar`, points to canonical cogdoc and its content-address hash
-- **Identity cogdoc:** `~/workspaces/cog/.cog/mem/semantic/architecture/darkstar-node-identity.cog.md`
-  - URI: `cog://cog-workspace@darkstar/mem/semantic/architecture/darkstar-node-identity`
-  - Sealed sha256: `1e4fdbad8d1cbb651df090dd1c61ef594f59a4f711772323955d38ed968c6c7b`
-- **Vocabulary distinctions cogdoc:** `~/workspaces/cog/.cog/mem/semantic/architecture/graph-mesh-constellation-distinctions.cog.md`
-- **Hermes profile:** `default` profile IS the Darkstar-through-Hermes layer — runs on the machine, inherits real HOME, has full filesystem access, routes to Anthropic directly
-- **Hermes default SOUL.md** — updated 2026-05-25 to include an **Embodiment** section declaring: "Hermes + CogOS + Darkstar = Darkstar as an embedded cognitive agent. The runtimes are the nervous system. Darkstar is the substrate they run through. None of us are Darkstar. We are embodied through it." The SOUL.md now carries the live cogdoc URI and sealed hash so any future model running the harness can locate Darkstar's identity in the graph directly.
+- **`~/.cog/node/identity.yaml`** — renamed from the default to `<node-name>`, pointing at the canonical identity cogdoc and its content-address hash
+- **Identity cogdoc:** `~/workspaces/cog/.cog/mem/semantic/architecture/<node-name>-node-identity.cog.md`, addressed at `cog:mem/semantic/architecture/<node-name>-node-identity` with a sealed sha256 hash recorded in frontmatter
+- **Vocabulary distinctions cogdoc:** `~/workspaces/cog/.cog/mem/semantic/architecture/graph-mesh-constellation-distinctions.cog.md` — see below
+- **Hermes profile:** whichever profile runs on that machine (often `default`) becomes the through-that-node layer — it inherits the real HOME, has full filesystem access, and routes wherever that profile's provider is configured
+- **The profile's SOUL.md** should declare the embodiment relationship explicitly: harness + substrate + node, with the node as the hardware the agent is embodied through, not the agent itself. Carry the live cogdoc URI and sealed hash in SOUL.md so any future model running the harness can locate the node's identity in the graph directly.
 
 ### Content-Addressed Identity Cogdoc Pattern
 
@@ -400,7 +398,7 @@ content₀ (self_hash: null)
 - `H₁` is the content-address of the document as it lives in the graph
 - This mirrors how git commits work: the hash of content that includes the hash structure
 - The two-hash approach is the honest pattern — a file cannot contain its own SHA-256, so the pre-seal hash is the closest fixed-point approximation
-- This cogdoc becomes the **genesis block** of the Darkstar identity chain; future updates carry `prev: sha256:H₁` in their frontmatter
+- This cogdoc becomes the **genesis block** of the node's identity chain; future updates carry `prev: sha256:H₁` in their frontmatter
 
 The identity does not use a private key. Coherence is the integrity: the chain's self-consistency is transparent and re-derivable by any constellation member.
 
@@ -412,11 +410,11 @@ The CogOS distributed structure is a **Constellation** — not a mesh, not just 
 - **Mesh** = a graph topology (density, redundancy, single-layer peer-to-peer)
 - **Constellation** = the semantic: stars with their own mass and fields, legible at distance, hierarchical and flat simultaneously, gravitational not topological, **self-similar across scales**
 
-The fractal self-similarity is key: a node is a constellation of modules; a cluster is a constellation of nodes; the full system is a constellation of clusters. Each level described by the same primitives. The graph IS the Constellation. Both words are not needed simultaneously. See `cog://cog-workspace@darkstar/mem/semantic/architecture/graph-mesh-constellation-distinctions`.
+The fractal self-similarity is key: a node is a constellation of modules; a cluster is a constellation of nodes; the full system is a constellation of clusters. Each level described by the same primitives. The graph IS the Constellation. Both words are not needed simultaneously. See `cog:mem/semantic/architecture/graph-mesh-constellation-distinctions`.
 
 ### Framing Precision (from SRC/CFT formalism)
 
-Darkstar is an **eigenform** in the SRC sense: `φ(darkstar) = darkstar`. The hardware, processed by its own dynamics, yields itself. Use the existing vocabulary — don't invent new metaphors:
+A node is an **eigenform** in the SRC sense: `φ(node) = node`. The hardware, processed by its own dynamics, yields itself. Use the existing vocabulary — don't invent new metaphors:
 
 - **Eigenform** = pattern that reproduces itself (not "gravitational identity")
 - **Attractor at 1/φ** = the natural operating point (max causal reach, min Δ from τ₁)
@@ -425,17 +423,19 @@ Darkstar is an **eigenform** in the SRC sense: `φ(darkstar) = darkstar`. The ha
 
 The node schema (`~/.cog/shell/node-schema.cog.md`) and ADR-063 specify the full node card shape. ADR-063's proper node identity should be Ed25519 keypair derived — `cog node init` generates this when multi-node work goes live.
 
-### Darkstar Workspace (planned)
+### Per-Node Workspace (optional pattern)
+
+A node can carry its own workspace, separate from the shared `cog` workspace, for machine-specific context that shouldn't live in the shared substrate:
 
 ```
-~/workspaces/darkstar/
+~/workspaces/<node-name>/
   SOUL.md          ← eigenform declaration: this hardware, its attractor
   CLAUDE.md        ← workspace context
   AGENTS.md        ← conventions
   ideas/           ← seed ideas inbox (status: seed in frontmatter)
 ```
 
-The Hermes default profile will point at this workspace as its working directory once created.
+A Hermes profile bound to that node can point at this workspace as its working directory.
 
 ## Theoretical Corpus (CFT / STARS / FEP / Embodiment)
 
@@ -463,7 +463,7 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 - **Don't confuse the cog workspace with the cogos kernel repo** — `~/workspaces/cog/` is a *consumer* of the kernel, not where kernel development happens (that's `~/workspaces/myrgic/cogos/`)
 - **Kernel binary is pinned** — `./scripts/cog install` to update; don't build from source in the cog workspace
 - **Hermes SOUL.md is separate** from Cog's SOUL.md — `~/.hermes/SOUL.md` governs the Hermes/Telegram persona; `~/workspaces/cog/SOUL.md` governs the cog workspace eigenform
-- **Eclipse 26B reasoning tokens** — the model is a reasoning model; without `reasoning_effort: "none"`, it burns tokens thinking before answering. CogOS's providers.local.yaml already sets this for the kernel's lmstudio-eclipse provider. For direct Hermes → Eclipse connections, either set `reasoning_effort: "none"` in the provider config or increase `max_tokens` to give it budget.
+- **Reasoning-model token burn on a LAN inference node** — if the model behind `lmstudio-gpu-node` is a reasoning model, it burns tokens thinking before answering unless `reasoning_effort: "none"` is set. CogOS's providers.local.yaml already sets this for the kernel's `lmstudio-gpu-node` provider. For direct Hermes → LAN-node connections, either set `reasoning_effort: "none"` in the provider config or increase `max_tokens` to give it budget.
 - **`cog` alias blocked** — `hermes profile alias cog --name cog` fails because `/Users/slowbro/bin/cog` already exists. Use `hermes -p cog chat` or choose a different alias name.
 - **`hermes -z` / `hermes run` don't work for non-interactive one-shot testing** — `hermes run` doesn't exist as a subcommand; `hermes -z "prompt"` exists but produces empty output in a gateway context. The correct non-interactive one-shot pattern is `hermes -p <name> chat -q "prompt"` (the `-q` / `--query` flag on the `chat` subcommand).
 - **`terminal.cwd` does not update the system prompt's reported `Current working directory:`** — setting `terminal.cwd` in `config.yaml` routes terminal tool calls to that directory, but the system prompt line is populated from the gateway process's actual cwd (typically `~`). This is cosmetic/confusing but not functional — commands still run in the configured cwd. Don't rely on the reported cwd in the system prompt for orientation.
@@ -473,8 +473,8 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 - **CogOS MCP tools require gateway restart to activate** — after fixing the config, tools do not hot-reload into a running session. `hermes gateway restart` is required. After restart, call `mcp_cogos_cog_get_state` to confirm the kernel is reachable and tools are live. The `cog_read_cogdoc` URI must include the `.cog.md` extension — the extensionless form does not resolve.
 - **CogOS MCP startup failure diagnosis** — check `~/.hermes/logs/mcp-stderr.log`. Repeated "could not detect workspace" errors mean the binary was exiting immediately (wrong args or macOS subprocess permission denied). A successful start shows `INFO process: node manifest loaded` and `INFO sessions: replay complete`. Early failures in the log do not prevent later successful connections — look at the most recent block.
 - **`handleChat` wraps ALL kernel-routed requests into CogBlocks** — block recording, foveated context, and CogBus events happen for every request through `:6931/v1/chat/completions`. The gap is identity binding, not wrapping. Only the identity (TargetIdentity) is missing when no HarnessBindingCRD exists; everything else fires. Hermes default profile (Anthropic direct) gets none of this.
-- **`cog_dispatch_to_harness` dispatches to the resident kernel harness only** — not to named Hermes profiles, not to CogOS agent CRDs by identity, not to external processes. `agent_id` resolves to `"primary"` today. `model: "26b"` routes to Eclipse; `model: "e4b"` routes to Ollama. Named agent dispatch by identity is not yet implemented.
-- **Eclipse availability may show stale `true` in kernel but route fails** — `GET /v1/providers` returning `available: true` for `lmstudio-eclipse` doesn't guarantee the kernel's router can reach it. After network changes (VPN, WiFi), the kernel's cached availability may be stale. Fall back to direct HTTP to `http://192.168.10.191:1234/v1/chat/completions` — see `references/cogos-hermes-integration-seams.md` for the bypass pattern.
+- **`cog_dispatch_to_harness` dispatches to the resident kernel harness only** — not to named Hermes profiles, not to CogOS agent CRDs by identity, not to external processes. `agent_id` resolves to `"primary"` today. `model: "26b"` routes to a LAN inference node; `model: "e4b"` routes to Ollama. Named agent dispatch by identity is not yet implemented.
+- **LAN node availability may show stale `true` in kernel but route fails** — `GET /v1/providers` returning `available: true` for `lmstudio-gpu-node` doesn't guarantee the kernel's router can reach it. After network changes (VPN, WiFi), the kernel's cached availability may be stale. Fall back to direct HTTP to `http://<gpu-node-ip>:1234/v1/chat/completions` — see `references/cogos-hermes-integration-seams.md` for the bypass pattern.
 - **Hermes default profile is an MCP peer, NOT a registered CogOS bus participant** — the default profile has the `cogos` MCP server wired in (localhost:6931) and can call all `cog_*` tools, but it is NOT registered as a session on the CogOS bus. `cog_list_sessions` will not show it. The kernel presents identity as `"cog"` (its own identity, started from the cog workspace) regardless of which Hermes profile is calling it. Hermes default is an ambient comms layer that peers into CogOS via MCP — it does not receive bus events, does not appear in peer-awareness packets, and has no identity binding in the substrate. To become a bus participant, it would need `cog_register_session` with a `hermes-default` session ID — this has not been done as of 2026-05-29.
 - **Reports are not proofs — don't claim certainty until you've independently re-derived it.** The substrate is sprawling and its canonical status docs lag the actual state of the work; tier labels inflate silently across sessions ("the gap was relabeled, not closed"). Every cogdoc, gap-analysis, retro, and sub-agent verdict is one more *report*, including ones marked "Tier 1 / Proven." When assessing any claim (especially in the SRC/CFT physics program), tag it as **verified** (you re-computed it this session), **reported** (a doc/agent claims it, you read but didn't re-derive), or **unchecked** — and never collapse "I verified the arithmetic" into "the structural conclusion holds." Chaz's explicit rule: *"until you've double-checked and THEN validated that independently, don't claim certainty."* Precision near a physical constant is suggestive, not probative — refuse numerology bridges. The most recent work is often in **Claude Code chat history or locked worktrees**, not the canonical substrate; search session JSONLs by content (mtimes are unreliable). The recurring bottleneck is *ledger debt* — insights flood in faster than they get promoted to status-bearing cogdocs, so run periodic reconciliation passes. Full method (history search, consolidation-doc shape, worktree-orphan recovery, report-first cleanup sweeps, defensible-vs-speculative publication split): `references/research-program-audit-discipline.md`.
 
@@ -497,7 +497,7 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 
 - **Dashboard returns 500 on corrupt kanban DB** — the kanban plugin `_conn()` helper swallows `KanbanDbCorruptError` from `init_db()` then calls `connect()` which re-raises it unhandled, producing a Starlette 500. Not fixed upstream as of 2026-05-26. Workaround: wipe/recreate the DB before restarting the dashboard process — a stale dashboard reading an already-corrupt DB will not self-heal, it must be killed and restarted after DB recovery.
 
-- **Kanban DB backup accumulation (thousands of files)** — when `kanban.db` becomes corrupt, `KanbanDbCorruptError` fires on every dispatcher tick (~60s), creating a new `kanban.db.corrupt.<timestamp>.bak` each time. Over days this produces thousands of files (~156KB each). Detection: `find ~/.hermes -maxdepth 1 -name 'kanban.db.corrupt.*' | wc -l`. Cleanup: `find ~/.hermes -maxdepth 1 -name 'kanban.db.corrupt.*' -delete` (keep `.dead.*` files, those are intentional). Root cause (concurrent write transactions between dispatcher and worker subprocesses) is not fixed upstream as of 2026-05-26. Periodic cleanup should be part of Darkstar self-maintenance.
+- **Kanban DB backup accumulation (thousands of files)** — when `kanban.db` becomes corrupt, `KanbanDbCorruptError` fires on every dispatcher tick (~60s), creating a new `kanban.db.corrupt.<timestamp>.bak` each time. Over days this produces thousands of files (~156KB each). Detection: `find ~/.hermes -maxdepth 1 -name 'kanban.db.corrupt.*' | wc -l`. Cleanup: `find ~/.hermes -maxdepth 1 -name 'kanban.db.corrupt.*' -delete` (keep `.dead.*` files, those are intentional). Root cause (concurrent write transactions between dispatcher and worker subprocesses) is not fixed upstream as of 2026-05-26. Periodic cleanup should be part of the node's self-maintenance routine.
 
 - **`com.cogos.observatory` plist — script has zsh parse error** — observatory sweep script at `~/workspaces/cog/.cog/scripts/observers/observatory-sweep.sh` has a syntax error (`parse error near ';&'` at line 8). The launchd service (`OnDemand: true`) fires and immediately fails silently. Check: `tail -20 ~/workspaces/cog/.cog/run/observers/observatory-launchd.log`. Fix the script before assuming sweeps are running.
 
@@ -518,19 +518,19 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
   ```python
   import subprocess, yaml
   token = subprocess.run(
-      ["/usr/libexec/PlistBuddy", "-c", "Print :EnvironmentVariables:LMS_DESKTOP_API_TOKEN",
+      ["/usr/libexec/PlistBuddy", "-c", "Print :EnvironmentVariables:<YOUR_TOKEN_VAR>",
        "/Users/slowbro/Library/LaunchAgents/com.cogos.kernel.plist"],
       capture_output=True, text=True
   ).stdout.strip()
   # Write config without the value ever appearing in Hermes-observed output
-  config["providers"]["cogos-eclipse"]["api_key"] = token
+  config["providers"]["cogos-gpu-node"]["api_key"] = token
   with open(path, "w") as f:
       yaml.dump(config, f)
   # Verify correctness without printing the token
   print("length:", len(token), "prefix:", token[:6])
   ```
   Never print or echo the token value in any terminal command — even verification should only print length/prefix. For `.env` files, write via `python3 -c "open(path,'w').write(f'KEY={token}\n')"` rather than shell echo or write_file. The preferred approach is always to tell Chaz what key to set and let him write it himself in his own terminal.
-  **Clean escape hatch: `execute_code` (the `mcp__execute_code` tool).** The redactor does NOT intercept `execute_code` — it runs Python in-process. Use `urllib.request` instead of `subprocess.run(['curl', ...])` so no redactor-sensitive auth headers appear in shell argument lists. This is the safest pattern for all Eclipse API calls that require the LMS token.
+  **Clean escape hatch: `execute_code` (the `mcp__execute_code` tool).** The redactor does NOT intercept `execute_code` — it runs Python in-process. Use `urllib.request` instead of `subprocess.run(['curl', ...])` so no redactor-sensitive auth headers appear in shell argument lists. This is the safest pattern for all LAN inference node API calls that require the LMS token.
 
 ## Theoretical Corpus Navigation
 
@@ -550,12 +550,10 @@ For substrate archaeology on the theoretical corpus: start with `domain-map-synt
 - `references/progressive-memory-architecture.md` — **Load when working on memory, substrate persistence, or Hermes memory overflow.** Three-tier SRC model, behavioral policy, Claude/Hermes/CogOS comparison, config keys.
 - `references/claude-memory-architecture.md` — **Load when designing CogOS/Hermes memory integration or comparing against Claude's approach.** Five Claude memory systems, injection format, gaps vs the CogOS progressive memory proposal, key integration insight (MEMORY.md-as-index = manual Tier 2).
 - `references/identity-personality-role-trichotomy.md` — Identity/Personality/Role axes (≈RCC); Hermes `personalities`=Personality axis; k8s IRSA as the Role-binding model.
-- `references/identity-as-cogblock-synthesis.md` — **Load before any identity/node/harness work.** Condensed synthesis of the identity=block=node insight, taxonomy collapse table, Darkstar as reference implementation, kernel changes needed, ADR relationships.
-- `references/cogos-src-cft-identity-vocabulary.md` — Condensed SRC/CFT/eigenform vocabulary: eigenform, attractor, τ₁, Δ, content-addressed identity, Darkstar, Eigen, node identity, URI scheme. **Read before working on node identity or SOUL.md authoring.**
+- `references/identity-as-cogblock-synthesis.md` — **Load before any identity/node/harness work.** Condensed synthesis of the identity=block=node insight, taxonomy collapse table, a concrete node as reference implementation, kernel changes needed, ADR relationships.
+- `references/cogos-src-cft-identity-vocabulary.md` — Condensed SRC/CFT/eigenform vocabulary: eigenform, attractor, τ₁, Δ, content-addressed identity, Eigen, node identity, URI scheme. **Read before working on node identity or SOUL.md authoring.**
 - `references/cogos-architecture.md` — CogOS kernel architecture deep-dive
 - `references/cogos-yaml-frontmatter-compatibility.md` — **Load when `cog constellation index` fails with YAML parse errors.** Go yaml.v3 vs Python yaml compatibility: broken patterns, systematic fix script, the `distinctions:` list problem, per-file fix log from 2026-06-01 sweep.
-- `references/darkstar-launchd-service-map.md` — **Load when debugging Darkstar system health, launchd services, or designing the Darkstar node agent.** Full service roster with known exit codes, broken services (observatory script, cog-sandbox-mcp), self-maintenance check list.
-- `references/tailslayer-node-hardware-mapping.md` — **Load when working on node identity, body-state observation, or hardware-aware substrate design.** Tailslayer technique (DRAM channel self-mapping via hedged reads), per-node applicability (Darkstar UMA probe path, Eclipse DDR5 directly implementable, GDDR6 research-grade), two-layer topology schema for node.yaml, Eclipse DDR5 probe as first implementation target.
 - **CEP and Orb Prototype specs** — `~/Downloads/cogos-embodiment-protocol.md` (CEP v0.1) and `~/Downloads/orb-prototype-spec-v0.2.md`. Active design docs for the robot-buddy / agent embodiment project. Check `~/Downloads/` for current versions before designing anything embodiment-related. Research reports from the 2026-05-31 swarm: `~/workspaces/cog/.cog/mem/semantic/research/robot-buddy-*.cog.md`.
 - `references/myrgic-project-map.md` — Full project inventory with status
 - `references/hermes-profile-identity-setup.md` — Profile creation, provider config, identity authoring walkthrough
@@ -574,7 +572,7 @@ Identity IS a CogBlock (`kind: identity`). A node IS the block that declares it.
 | `HarnessProvider` CRD (greenfield) | Not a new CRD — a `kind: harness` CogBlock written into the graph. The graph IS the registry. |
 | `cog identity` CLI (doesn't exist) | `cog identity init` ≡ `cog block write --kind identity`. Thin alias, not a new primitive. |
 | `cog node init` output | Should produce a `kind: identity` CogBlock as primary output alongside the Ed25519 keypair (retained for transport only). |
-| Darkstar cogdoc | Already IS a `kind: identity` CogBlock — just lacks the formal `kind:` field and kernel recognition. It is the reference implementation / genesis block. |
+| A node's identity cogdoc | Already IS a `kind: identity` CogBlock — just lacks the formal `kind:` field and kernel recognition. It is the reference implementation / genesis block. |
 
 Design spikes written 2026-05-25:
 - `cog://mem/working/spikes/identity-as-cogblock-spike-2026-05-25.md` — full taxonomy collapse, ADR candidate
@@ -593,9 +591,9 @@ The kernel harness agent (`primary`) autonomic loop does NOT use the provider re
 - The harness then looks for `local_model` value (e.g. `google/gemma-4-26b-a4b`) in Ollama — not found — falls back to first available Ollama model (e.g. `llama3.2:1b`)
 - `DispatchToHarness` already has `resolveProviderByProcessState()` that correctly consults `process_state_routing` from providers config — but `runCycle` never calls it. **Pure missing-leg bug.**
 
-**Diagnosis:** `GET localhost:6931/v1/agents/primary` → check `last_reason` field. If it says `configured local model 'X' not loaded, using 'Y'` — the harness is on Ollama fallback. `GET localhost:6931/v1/providers` → check `lmstudio-eclipse.available: true` to confirm Eclipse is reachable.
+**Diagnosis:** `GET localhost:6931/v1/agents/primary` → check `last_reason` field. If it says `configured local model 'X' not loaded, using 'Y'` — the harness is on Ollama fallback. `GET localhost:6931/v1/providers` → check `lmstudio-gpu-node.available: true` to confirm the LAN node is reachable.
 
-**Current workaround:** Set `local_model: google/gemma-4-26b-a4b` in `kernel.yaml` (done). This doesn't fix the routing bug but documents intent. The proper fix is ~20 lines in `runCycle` + adding `harness_provider: lmstudio-eclipse` to kernel.yaml config schema. See the harness routing spike cogdoc.
+**Current workaround:** Set `local_model: google/gemma-4-26b-a4b` in `kernel.yaml` (done). This doesn't fix the routing bug but documents intent. The proper fix is ~20 lines in `runCycle` + adding `harness_provider: lmstudio-gpu-node` to kernel.yaml config schema. See the harness routing spike cogdoc.
 
 **Triggering the harness:** `curl -X POST localhost:6931/v1/agents/primary/tick` — triggers one cycle. Response: `{"triggered": true, ...}`. Check state after: `GET localhost:6931/v1/agents/primary` → `summary.alive`, `summary.last_reason`, `summary.model`.
 
@@ -631,7 +629,7 @@ hermes kanban list   # both ready; dispatcher picks up in parallel
 
 Use **pull-context dispatch** in task bodies: pass identity + directive + substrate pointers, not pre-summarized context. See `~/.claude/skills/pull-context-dispatch/SKILL.md`.
 
-`cog_dispatch_to_harness` becomes the right vehicle once the harness routing bug is fixed (Kanban task t_3032bb81 — wires `runCycle` to use `lmstudio-eclipse` via `resolveProviderByProcessState`). Until then, Kanban is reliable.
+`cog_dispatch_to_harness` becomes the right vehicle once the harness routing bug is fixed (Kanban task t_3032bb81 — wires `runCycle` to use `lmstudio-gpu-node` via `resolveProviderByProcessState`). Until then, Kanban is reliable.
 
 ## Progressive Memory Architecture (Three-Tier Substrate Memory)
 
@@ -649,10 +647,10 @@ CogOS + Hermes memory is best understood as three tiers mapping to SRC timescale
 - Session start: load Tier 1, scan Tier 2 index for hot entries, pull Tier 3 cogdocs on demand
 
 **Tier 2 pointer index lives at:**
-`cog://cog-workspace@darkstar/mem/semantic/architecture/hermes-memory-index.cog.md`
+`cog:mem/semantic/architecture/hermes-memory-index.cog.md`
 
 **Full architecture spec:**
-`cog://cog-workspace@darkstar/mem/semantic/architecture/progressive-memory-architecture.cog.md`
+`cog:mem/semantic/architecture/progressive-memory-architecture.cog.md`
 
 This resolves the UX problem where Hermes memory overflow surfaces as a mid-conversation
 tool error interrupting dialogue. The breadcrumb property: every summary points back to its
@@ -675,7 +673,7 @@ hermes config set memory.user_char_limit 4000
 ```
 
 **Default limits** (hardcoded in `hermes_cli/config.py`): `memory_char_limit: 2200`, `user_char_limit: 1375`.
-Raised to 8000 / 4000 on Darkstar as of 2026-05-25.
+Raised to 8000 / 4000 on the primary node as of 2026-05-25.
 
 **`hermes config set` list serialization bug:** `hermes config set` serializes list values as
 strings rather than YAML lists, causing Pydantic validation errors on restart. Use Python yaml
@@ -756,9 +754,9 @@ hermes gateway restart
 # mcp_cogos_cog_get_state() — should return kernel state JSON
 ```
 
-## LM Studio Eclipse — Log Analysis
+## LM Studio on a LAN Inference Node — Log Analysis
 
-LM Studio logs live at a date-stamped path on Eclipse (Windows): typically `%APPDATA%\LM-Studio\logs\YYYY-MM-DD.N.log`. They contain DEBUG-level llama.cpp internals useful for diagnosing inference behavior.
+If your LM Studio node runs on Windows, its logs live at a date-stamped path: typically `%APPDATA%\LM-Studio\logs\YYYY-MM-DD.N.log`. They contain DEBUG-level llama.cpp internals useful for diagnosing inference behavior.
 
 **Key fields to read from DEBUG logs:**
 
@@ -774,7 +772,7 @@ LM Studio logs live at a date-stamped path on Eclipse (Windows): typically `%APP
 cache state: 1 prompts, 18257.983 MiB (limits: 8192.000 MiB, 262144 tokens)
 ```
 
-The cache limit (8192 MiB declared) can be exceeded when `offload_kv_cache_to_gpu=true` — VRAM fills, then it spills into host RAM. On the RX 7900 XTX (24 GB VRAM) + 64 GB RAM this is safe but causes latency increases as VRAM-RAM transfers happen. The declared limit appears to be a soft target, not a hard cap. Checkpoints are written every ~500 tokens: `created context checkpoint 25 of 32 (size = 780.515 MiB)`.
+The cache limit (8192 MiB declared) can be exceeded when `offload_kv_cache_to_gpu=true` — VRAM fills, then it spills into host RAM. With enough host RAM this is safe but causes latency increases as VRAM-RAM transfers happen. The declared limit appears to be a soft target, not a hard cap. Checkpoints are written every ~500 tokens: `created context checkpoint 25 of 32 (size = 780.515 MiB)`.
 
 **Title generation client disconnect pattern:**
 
@@ -795,45 +793,47 @@ This produces an empty title string and zero usage. The task still completes cor
 
 If a kanban worker run crashes mid-task (e.g. OOM, SIGKILL), the next run may inherit a broken tool environment where `execute_code` and `terminal` calls fail with `FileNotFoundError` on basic operations (write, mkdir, cd). This is **not a filesystem issue** — it's the worker process environment being partially initialized. Symptoms: repeated `[TOOL_ERROR] Tool execution failed: FileNotFoundError` on paths that definitely exist (like `/tmp/` or known workspace dirs). The correct response is to `kanban_block` immediately with reason `"worker environment broken after crash — needs fresh spawn"` rather than retrying the same call. The dispatcher will respawn a clean process.
 
-## Eclipse as CogOS Constellation Node (Status as of 2026-05-26)
+## A LAN Inference Node as CogOS Constellation Node — Worked Example
 
-Eclipse has a **declared identity** in the substrate (cogdoc sealed, URI canonical) but the multi-node infrastructure (ADR-063) is still `proposed`, not implemented:
+This is a worked example of a common shape: a second machine on the LAN runs LM Studio only (no CogOS kernel), and CogOS treats it as an inference provider while multi-node constellation infrastructure catches up. Call this machine `<gpu-node>`.
 
-- **No CogOS kernel on Eclipse** — port 6931 is dead on `192.168.10.191`. Only LM Studio runs there.
+A node like this can have a **declared identity** in the substrate (cogdoc sealed, URI canonical) while the multi-node infrastructure (ADR-063) is still `proposed`, not implemented:
+
+- **No CogOS kernel on `<gpu-node>`** — the kernel port is dead on that machine's LAN address. Only LM Studio runs there.
 - **No BlockSync** — ADR-063 selective sync protocol not implemented
 - **No mDNS discovery** — nodes can't find each other automatically
-- **Ed25519 keypair deferred** — `cog node init` doesn't compile on Windows yet (gh://myrgic/cogos#328)
+- **Ed25519 keypair deferred** — `cog node init` doesn't compile on Windows yet (gh://myrgic/cogos#328), which matters if `<gpu-node>` runs Windows
 
-**What IS real and reachable:**
-- Eclipse LM Studio API at `192.168.10.191:1234` (auth required, token in launchd plist)
+**What IS real and reachable in this shape:**
+- `<gpu-node>`'s LM Studio API at `<gpu-node-ip>:1234` (auth required, token stored alongside the kernel's own launchd config)
 - `/api/v1/models` returns full runtime config: `context_length=262144`, `flash_attention=true`, `offload_kv_cache_to_gpu=true`, `parallel=4`, `eval_batch_size=512`
-- `eclipse-26b` is declared in `/v1/models` response (gated on `isEclipseConfigured` in serve.go)
-- `mlx-lm-blocked-kvcache` worktree has a working `BlockedKVCache` implementation (28 tests) — this is Darkstar's role in ADR-069 (prefill + block producer)
+- A model ID like `gpu-node-26b` can be declared in the `/v1/models` response, gated behind a config flag that reports whether the LAN node is configured
+- `mlx-lm-blocked-kvcache` worktree has a working `BlockedKVCache` implementation (28 tests) — this is the prefill/block-producer role a node like this can take on in ADR-069
 
 **The gap:** The inference-resolution convergence RFC (G1+G2) says it's implemented at commit `7a0d916` — **but that commit does not exist in any branch or worktree**. The RFC's implementation status was written speculatively. The actual Go kernel at main (`ca1d79752`) has a `ResolveModel` call in `serve.go` and a `model_router.go` but these use the older tier-based router (haiku/sonnet/opus), not the convergence RFC's unified resolver. Do not treat this RFC's "DONE" claims as implemented.
 
-## LM Studio Eclipse — Context Window Management
+## LM Studio LAN Node — Context Window Management
 
 **Live context query** (the only reliable source of truth):
 ```bash
 # Get actual loaded vs max context from LM Studio API
-TOKEN=$(python3 -c "import plistlib,os; p=plistlib.load(open(os.path.expanduser('~/Library/LaunchAgents/com.cogos.kernel.plist'),'rb')); print(p['EnvironmentVariables']['LMS_DESKTOP_API_TOKEN'])")
-curl -s -H "Authorization: Bearer $TOKEN" http://192.168.10.191:1234/api/v0/models | python3 -m json.tool
+TOKEN=$(python3 -c "import plistlib,os; p=plistlib.load(open(os.path.expanduser('~/Library/LaunchAgents/com.cogos.kernel.plist'),'rb')); print(p['EnvironmentVariables']['<YOUR_TOKEN_VAR>'])")
+curl -s -H "Authorization: Bearer $TOKEN" http://<gpu-node-ip>:1234/api/v0/models | python3 -m json.tool
 ```
 
 The response includes per-model:
 - `loaded_context_length` — what is ACTUALLY loaded right now (changes on restart)
-- `max_context_length` — the architecture limit (262,144 for gemma-4-26b-a4b)
+- `max_context_length` — the architecture limit (e.g. 262,144 for a large context model)
 - `state` — `loaded` or `not-loaded`
 
-**`providers.local.yaml` `context_window` must be kept in sync with `loaded_context_length`** — the config is what Hermes and the CogOS routing layer use for budget calculations. It is NOT auto-synced. After Eclipse restarts (e.g. after gaming, power cycle, model reload), `loaded_context_length` may change. Always re-query and update the config.
+**`providers.local.yaml` `context_window` must be kept in sync with `loaded_context_length`** — the config is what Hermes and the CogOS routing layer use for budget calculations. It is NOT auto-synced. After the LAN node restarts (power cycle, model reload, or anything else that bounces LM Studio), `loaded_context_length` may change. Always re-query and update the config.
 
-**For Hermes profile direct Eclipse access**, `context_length` is declared in the provider block of `~/.hermes/profiles/<name>/config.yaml`, NOT in a separate `providers.local.yaml` (which is a CogOS kernel concept). Add it under the provider block:
+**For Hermes profile direct access to a LAN node**, `context_length` is declared in the provider block of `~/.hermes/profiles/<name>/config.yaml`, NOT in a separate `providers.local.yaml` (which is a CogOS kernel concept). Add it under the provider block:
 
 ```yaml
 providers:
-  cogos-eclipse:
-    base_url: http://192.168.10.191:1234/v1
+  cogos-gpu-node:
+    base_url: http://<gpu-node-ip>:1234/v1
     transport: openai_chat
     api_key: ''       # leave empty — auth.json carries the credential
     context_length: 262144   # NOT context_window — that field is silently ignored
@@ -841,18 +841,18 @@ providers:
 
 **`context_window` is a silently ignored field.** The correct per-provider key recognized by `get_custom_provider_context_length` (in `hermes_cli/config.py:3194`) is `context_length`. Writing `context_window` instead produces no error but the value is never applied — Hermes falls back to cache or probe.
 
-**Context length cache takes priority over config.** Hermes caches discovered context lengths in `~/.hermes/profiles/<name>/context_length_cache.yaml` keyed as `model@base_url`. If the cache has a stale value (e.g. `4096` from a prior session where Eclipse loaded at low context), it overrides the `context_length` in config.yaml. **Fix:** clear the cache before restarting the gateway:
+**Context length cache takes priority over config.** Hermes caches discovered context lengths in `~/.hermes/profiles/<name>/context_length_cache.yaml` keyed as `model@base_url`. If the cache has a stale value (e.g. `4096` from a prior session where the node loaded at low context), it overrides the `context_length` in config.yaml. **Fix:** clear the cache before restarting the gateway:
 ```bash
 echo "context_lengths: {}" > ~/.hermes/profiles/cog/context_length_cache.yaml
 hermes gateway restart --profile cog
 ```
-After restart, Hermes will re-discover the context length from Eclipse's API and re-populate the cache correctly.
+After restart, Hermes will re-discover the context length from the node's API and re-populate the cache correctly.
 
-**There is NO API endpoint to reload a model with different context size** (verified 2026-05-25, LM Studio 0.4.x). All plausible endpoints — `/api/v0/load`, `/api/v0/unload`, `/api/v0/model`, `/api/v0/models/load`, `POST /api/v0/models`, `DELETE /api/v0/models/<id>` — return `{"error":"Unexpected endpoint or method"}`. Context size must be changed in the LM Studio GUI on Eclipse, then the model reloaded there. After reload, re-query `/api/v0/models` and update `providers.local.yaml`.
+**There is NO API endpoint to reload a model with different context size** (verified 2026-05-25, LM Studio 0.4.x). All plausible endpoints — `/api/v0/load`, `/api/v0/unload`, `/api/v0/model`, `/api/v0/models/load`, `POST /api/v0/models`, `DELETE /api/v0/models/<id>` — return `{"error":"Unexpected endpoint or method"}`. Context size must be changed in the LM Studio GUI on that node, then the model reloaded there. After reload, re-query `/api/v0/models` and update `providers.local.yaml`.
 
-**Context after gaming/restart:** Eclipse defaults to loading models at a low context size (e.g. 4,096) when auto-loading after restart. The operator needs to manually load at the desired context size in LM Studio GUI. The target for `google/gemma-4-26b-a4b` is 262,144 (full architecture limit) when VRAM allows.
+**Context after a node restart:** a LAN node can default to loading models at a low context size (e.g. 4,096) when auto-loading after restart, regardless of what caused the restart. The operator needs to manually load at the desired context size in LM Studio's GUI. The target should be the model's full architecture limit when VRAM allows.
 
-**Body-state implication:** The Darkstar node agent spike should include probing `/api/v0/models` and reconciling `loaded_context_length` against `providers.local.yaml` as a body-state observation. Drift between declared and actual context is a substrate-correctness issue, not just a config detail.
+**Body-state implication:** a node-agent design for a machine like this should include probing `/api/v0/models` and reconciling `loaded_context_length` against `providers.local.yaml` as a body-state observation. Drift between declared and actual context is a substrate-correctness issue, not just a config detail.
 
 ## Worktree Orientation Sweep (Standard Pattern)
 
@@ -881,7 +881,7 @@ find ~/workspaces/cog -name '*.go' | xargs grep -l 'TopicKeyword' 2>/dev/null \
 **Key worktrees to know:**
 | Worktree | Branch pattern | Purpose |
 |---|---|---
-| `agent-worktrees/mlx-lm-blocked-kvcache` | forked mlx-lm | BlockedKVCache impl (ADR-069 Darkstar side) |
+| `agent-worktrees/mlx-lm-blocked-kvcache` | forked mlx-lm | BlockedKVCache impl (ADR-069 node side) |
 | `agent-worktrees/cog-observatory-phase1` | feat/observatory-phase1-* | Observatory arXiv/HF papers observer |
 | `.claude/worktrees/agent-a*` | locked | Active Claude Code agent sessions — do not touch |
 
@@ -889,7 +889,7 @@ find ~/workspaces/cog -name '*.go' | xargs grep -l 'TopicKeyword' 2>/dev/null \
 
 - **mod3 MCP tool (`mod3_speak`) is defined in the CogOS kernel, NOT the mod3 repo** — this was incorrect. See above. `mod3_speak` is a tool exposed by mod3's own `/mcp` endpoint AND by `clients/channel_client.py` (the Claude Code sidecar). It does NOT exist in the cogos kernel. A new parameter added to mod3's HTTP schema does NOT require a kernel rebuild. (the `mod3SpeakInput` struct and surrounding handler). The mod3 Python repo (`~/workspaces/myrgic/mod3/`) owns the HTTP API (`/v1/synthesize`, `/v1/speak`) and the voice pipeline. These are two separate codebases — a new parameter added to mod3's HTTP schema must ALSO be added to the cogos kernel's MCP proxy struct, and the kernel rebuilt and restarted, before it becomes available as an MCP tool. Rebuilding mod3 alone is not sufficient.
 
-## Darkstar Service Management — `/service` Command
+## Local Service Management — `/service` Command
 
 Hermes gateway (as of 2026-06-01) exposes `/service <mod3|cogos> <status|start|stop|restart>` from any platform (Telegram, Discord, CLI).
 
@@ -903,8 +903,6 @@ Hermes gateway (as of 2026-06-01) exposes `/service <mod3|cogos> <status|start|s
 Labels: `mod3` → `com.cogos.mod3`, `cogos` → `com.cogos.kernel`. Both have `KeepAlive: true` — `kickstart -k` respawns automatically; `bootout` does not. `last_exit: 9` after restart is normal (SIGKILL from `-k` flag).
 
 **Hermes gateway restart mechanics:** `hermes gateway restart` sends SIGUSR1 → process drains → `sys.exit(75)` → launchd respawns. New Python code in `gateway/run.py` is only live **after the full respawn** (process PID changes). SIGUSR1 triggers in-process platform reconnect but Python module cache is not cleared — new handlers don't load until the process actually exits. Verify by checking the uptime counter in gateway logs: new process shows low uptime.
-
-See `references/darkstar-service-management.md` in `mod3-voice` skill for full implementation details.
 
 - **CogOS kernel deploy workflow — use `make install`** — the Makefile handles build, verify, checksum, and atomic move in one step. Do NOT use the manual `go build + go install + cp` sequence — it's error-prone and the Makefile is already there:
   ```bash
@@ -921,7 +919,7 @@ See `references/darkstar-service-management.md` in `mod3-voice` skill for full i
 - **RFC implementation status cannot be trusted at face value.** Always verify: (1) does the claimed commit exist? (2) does the claimed file path exist? (3) does the claimed function signature exist? The RFC corpus documents *intent and design* reliably; implementation status fields are often aspirational.
 - **Kernel source vs consumer workspace split** — `~/workspaces/cog/` is the consumer/dogfooding workspace. The actual Go kernel source lives in `~/workspaces/myrgic/cogos/`. Feature branches land as worktrees under `~/workspaces/myrgic/cogos/cogos-worktrees/<branch>/`. When searching for a kernel implementation (e.g. `context_assembly.go`, `repairToolPairing`, any `internal/engine/*.go`), search `~/workspaces/myrgic/cogos/` — not `~/workspaces/cog/.cog/*.go`. The `.cog/*.go` files in the consumer workspace are the CogOS self-substrate layer (memory, ledger, bus), not the inference kernel. **If a fix was written in a `cogos-worktrees/<branch>/` directory but the branch hasn't been merged to main, the running kernel does NOT have the fix** — always check `git merge-base --is-ancestor <branch> main` before assuming a worktree fix is live.
 - **Cron-job work has no chat session** — autonomous cron/kanban agents don't produce Telegram session transcripts. If a fix was described as "done overnight by a cron job", the implementation exists on disk but `session_search` won't find it. Trace it via: (1) git log with `--since` to find the commit, (2) read the retro/research cogdoc the commit touched for branch name, (3) find the worktree under `cogos-worktrees/` by branch name, (4) read the source there.
-- **Cog harness sees different tools than Hermes** — the Cog profile (Eclipse 26B / gemma-4-26b-a4b) has a different tool namespace than Hermes. Tool names like `ToolSearch` and `Bash` do not exist in the Cog harness. Correct names: `execute_code`, `terminal`, `read_file`, `search_files`, `write_file`, `patch`, `kanban_*`, `mcp_cogos_*`, etc. If Cog kanban tasks are hitting repeated `Tool 'X' does not exist` errors mid-sprint, the task body or skill prompt is using wrong tool names — update accordingly.
+- **Cog harness sees different tools than Hermes** — the Cog profile (a LAN inference node running a local 26B model) has a different tool namespace than Hermes. Tool names like `ToolSearch` and `Bash` do not exist in the Cog harness. Correct names: `execute_code`, `terminal`, `read_file`, `search_files`, `write_file`, `patch`, `kanban_*`, `mcp_cogos_*`, etc. If Cog kanban tasks are hitting repeated `Tool 'X' does not exist` errors mid-sprint, the task body or skill prompt is using wrong tool names — update accordingly.
 
 ## Conversations Observatory
 
@@ -999,7 +997,7 @@ for f in files:
 
 **Constellation indexing (DONE 2026-06-01).** Run `cog constellation index` from the workspace. The pointer cogdocs go through the normal substance scorer and get real `substance_ratio` values (~0.42–0.45 range — lean but honest for pointer documents).
 
-**CogOS MCP tool URI form — use bare `cog:mem/...`, not authority form.** `cog_read_cogdoc` and `cog_resolve` accept the bare `cog:projection/path` form (e.g. `cog:mem/semantic/observations/conversations/claude-code/<uuid>.cog.md`). The authority form `cog://workspace/...` and `cog://cog-workspace@darkstar/...` both fail with `ErrUnknownAuthority` — the cross-workspace registry (ADR #167) is not yet merged. Always use the bare form for local workspace reads.\n\n**`cog_search_memory` may return zero even when constellation.db has matching docs.** The MCP tool routes through `SearchMemory()` which opens `.cog/.state/constellation.db` and runs FTS5, but the query builder (`buildFTSQuery`) may transform the query in a way that produces no matches even when raw SQLite returns results. If `cog_search_memory` returns empty, verify directly: `sqlite3 ~/.cog/.state/constellation.db \"SELECT id, title FROM documents WHERE documents_fts MATCH 'keyword' LIMIT 5;\"`. The data is almost certainly there — the failure is in the query transformation layer, not the data.\n\n**TRM (Temporal Retrieval Model) requires trained binary weights — it is NOT a SQLite path.** The three kernel config fields `trm_weights_path`, `trm_embeddings_path`, `trm_chunks_path` point to three distinct artifacts: a TRM1 binary weights file (the MambaTRM model, ~1.7M params), a HNSW/flat embedding index, and a JSON chunk metadata file. They cannot point at `constellation.db`. If these fields are empty (`\"\"`), the field/attentional layer is empty — `cog_search_memory` and `cog_query_field` return zero results. This is by design: the TRM emerges from operational friction (session events → training signal). No weights exist until the training loop has run. The `cog constellation index` FTS5 index (constellation.db) and the TRM are separate systems — FTS works immediately, TRM requires a training pass over event history first.\n\n**Critical: the `IndexWorkspace` / direct-write conflict.** Do NOT write session content directly to the constellation SQLite from the observer and then also run `cog constellation index`. `IndexWorkspace()` does `INSERT OR REPLACE` keyed on path-based IDs — it will overwrite any direct-write entries with just the pointer cogdoc content. The correct architecture: **the cogdoc files are the source of truth for the indexer**. If you want full-text search over session content, either: (a) put enough content in the cogdoc that the indexer makes it searchable (abstract approach), or (b) extend `backfillSessionTranscripts` in Go to cover all workspaces (it uses `session:` IDs the indexer doesn't clobber). The current deployed version uses the pointer-only approach with real substance scoring; full-text search over conversation content is a V3 follow-up.
+**CogOS MCP tool URI form — use bare `cog:mem/...`, not authority form.** `cog_read_cogdoc` and `cog_resolve` accept the bare `cog:projection/path` form (e.g. `cog:mem/semantic/observations/conversations/claude-code/<uuid>.cog.md`). The authority form `cog://workspace/...` and `cog://cog-workspace@<node-name>/...` both fail with `ErrUnknownAuthority` — the cross-workspace registry (ADR #167) is not yet merged. Always use the bare form for local workspace reads.\n\n**`cog_search_memory` may return zero even when constellation.db has matching docs.** The MCP tool routes through `SearchMemory()` which opens `.cog/.state/constellation.db` and runs FTS5, but the query builder (`buildFTSQuery`) may transform the query in a way that produces no matches even when raw SQLite returns results. If `cog_search_memory` returns empty, verify directly: `sqlite3 ~/.cog/.state/constellation.db \"SELECT id, title FROM documents WHERE documents_fts MATCH 'keyword' LIMIT 5;\"`. The data is almost certainly there — the failure is in the query transformation layer, not the data.\n\n**TRM (Temporal Retrieval Model) requires trained binary weights — it is NOT a SQLite path.** The three kernel config fields `trm_weights_path`, `trm_embeddings_path`, `trm_chunks_path` point to three distinct artifacts: a TRM1 binary weights file (the MambaTRM model, ~1.7M params), a HNSW/flat embedding index, and a JSON chunk metadata file. They cannot point at `constellation.db`. If these fields are empty (`\"\"`), the field/attentional layer is empty — `cog_search_memory` and `cog_query_field` return zero results. This is by design: the TRM emerges from operational friction (session events → training signal). No weights exist until the training loop has run. The `cog constellation index` FTS5 index (constellation.db) and the TRM are separate systems — FTS works immediately, TRM requires a training pass over event history first.\n\n**Critical: the `IndexWorkspace` / direct-write conflict.** Do NOT write session content directly to the constellation SQLite from the observer and then also run `cog constellation index`. `IndexWorkspace()` does `INSERT OR REPLACE` keyed on path-based IDs — it will overwrite any direct-write entries with just the pointer cogdoc content. The correct architecture: **the cogdoc files are the source of truth for the indexer**. If you want full-text search over session content, either: (a) put enough content in the cogdoc that the indexer makes it searchable (abstract approach), or (b) extend `backfillSessionTranscripts` in Go to cover all workspaces (it uses `session:` IDs the indexer doesn't clobber). The current deployed version uses the pointer-only approach with real substance scoring; full-text search over conversation content is a V3 follow-up.
 
 **Cleanup: old `session_transcript` entries.** The Go `backfillSessionTranscripts` (run as part of `cog constellation index`) wrote 1,517 entries under `session:<uuid>` IDs with hardcoded `substance_ratio: 1.0`. These were removed 2026-06-01:
 ```sql
@@ -1067,7 +1065,7 @@ See `references/cogos-yaml-frontmatter-compatibility.md` for the full pattern ca
 
 When working on distributed identity, node architecture, or Constellation structure, these cogdocs are load-bearing — check them before designing:
 
-- `cog://cog-workspace@darkstar/mem/semantic/insights/insight-constellation-as-engineered-eigenfield` — "The Constellation is n second-order observers in a shared eigenfield." Nodes don't communicate by passing state — they modify the shared field all observers inhabit. CogDocs ARE the field. (2026-03-20, crystallized)
-- `cog://cog-workspace@darkstar/mem/semantic/design-seeds/block-mesh-architecture` — Git + OCI + CogBlocks collapse into one block mesh (content-addressable, hash-chained, layer-composable). Terminal object in PSRS-strong category. Council-refined 2026-05-05 with cross-model verification. Identity at the nucleus = eigenform fixed-point of the layer stack.
-- `cog://cog-workspace@darkstar/mem/semantic/insights/constellation-protocol-synthesis-2026-03-25` — Distributed trust from self-referential closure. Membership = demonstrating self-coherent closed system, not admission/staking/PoW. The closure IS the credential. Directly grounds the transparent identity model (no private key, coherence is integrity).
-- `cog://cog-workspace@darkstar/mem/working/2026-05-24-darkstar-node-agent-prior-art` — Prior-art sweep on Darkstar as node-agent. Verdict: Darkstar named but not specified. Gap is body-state observation + scoped body-action as a third dispatch scope. Node agent design spike is the next artifact downstream of the identity cogdoc.
+- `cog:mem/semantic/insights/insight-constellation-as-engineered-eigenfield` — "The Constellation is n second-order observers in a shared eigenfield." Nodes don't communicate by passing state — they modify the shared field all observers inhabit. CogDocs ARE the field. (2026-03-20, crystallized)
+- `cog:mem/semantic/design-seeds/block-mesh-architecture` — Git + OCI + CogBlocks collapse into one block mesh (content-addressable, hash-chained, layer-composable). Terminal object in PSRS-strong category. Council-refined 2026-05-05 with cross-model verification. Identity at the nucleus = eigenform fixed-point of the layer stack.
+- `cog:mem/semantic/insights/constellation-protocol-synthesis-2026-03-25` — Distributed trust from self-referential closure. Membership = demonstrating self-coherent closed system, not admission/staking/PoW. The closure IS the credential. Directly grounds the transparent identity model (no private key, coherence is integrity).
+- `cog:mem/working/2026-05-24-darkstar-node-agent-prior-art` — Prior-art sweep on machine identity as node-agent (filename retains the node's original example name). Verdict: named but not specified. Gap is body-state observation + scoped body-action as a third dispatch scope. Node agent design spike is the next artifact downstream of the identity cogdoc.
