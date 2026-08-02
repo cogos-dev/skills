@@ -9,7 +9,7 @@ projection_note: >
   This is the public marketplace projection. The canonical source at
   ~/.hermes/skills/domain/substrate-archaeology/SKILL.md contains additional
   private research corpus content. Update canonical first; project here after.
-related_skills: [cogos-workspace, parallel-research-digest]
+related_skills: [parallel-research-digest]
 ---
 
 # Substrate Archaeology
@@ -82,6 +82,5 @@ The founding thesis: "Myrgic" is snipped from "stigmergic." Stigmergy is coordin
 
 ## Related
 
-- `cogos-workspace` — workspace orientation (load first)
 - `corpus-cross-reference` — RFC/ADR cross-check
 - `parallel-research-digest` — spawn parallel subagents to read and synthesize a large body of material

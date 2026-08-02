@@ -1,6 +1,6 @@
 {
   "name": "cogos-substrate",
-  "description": "Orientation and deep-context skills for working within the CogOS/Myrgic substrate — workspace layout, identity system, prior-work archaeology, and structural discourse conventions.",
+  "description": "Substrate archaeology — finding and trusting prior work in a CogOS/Myrgic substrate before building new things.",
   "version": "0.1.0",
   "author": {
     "name": "myrgic"
@@ -12,8 +12,7 @@
     "cogos",
     "myrgic",
     "substrate",
-    "workspace",
-    "identity",
+    "archaeology",
     "research"
   ]
 }
