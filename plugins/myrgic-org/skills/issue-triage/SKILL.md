@@ -9,7 +9,7 @@ Read-only audit of open issues across active myrgic repositories. Produces a cla
 
 ## Scope
 
-**Active repos:** cogos, constellation, mod3, charts, skills, research, docs, .github, cog-sandbox-mcp
+**Active repos:** cogos, constellation, mod3, charts, skills, research, .github, cog-sandbox-mcp
 
 **Skip (archived):** desktop, openclaw-plugin
 

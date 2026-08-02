@@ -19,8 +19,6 @@ Query these repos. Skip archived repos (desktop, openclaw-plugin) unless the req
 | myrgic/charts | |
 | myrgic/skills | |
 | myrgic/research | |
-| myrgic/cogops | private |
-| myrgic/docs | private |
 | myrgic/cog-sandbox-mcp | |
 | myrgic/.github | org governance |
 
@@ -42,7 +40,7 @@ Repeat for each repo in the active list above.
 gh search prs --owner myrgic --state open \
   --json number,title,author,createdAt,isDraft,repository
 ```
-Follow up with per-repo queries for cogops and docs, which are private and not returned by `gh search prs`.
+Follow up with per-repo queries for any private repos in scope; `gh search prs` will not return them.
 
 Collect the full result set before classifying.
 
@@ -154,4 +152,4 @@ Summary: 4 open PRs across 3 repos -- ready-to-merge: 1, needs-review: 2, needs-
 - **Read-only.** Do not run `gh pr merge`, `gh pr close`, `gh pr review`, `gh pr edit`, or any write operation against a PR.
 - **Skip archived repos** (desktop, openclaw-plugin) unless the user explicitly names them.
 - **Date claims** are relative to the session date. Compute age from `createdAt`.
-- **Private repos** (cogops, docs): query with per-repo `gh pr list`; `gh search prs` will not return them.
+- **Private repos**: query with per-repo `gh pr list`; `gh search prs` will not return them.

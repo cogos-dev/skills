@@ -169,7 +169,7 @@ Every dispatch prompt MUST include all six elements. Incomplete briefings produc
 
 3. WHERE TO WORK
    Exact file paths. Absolute, not relative.
-   ✓ "Edit /Users/me/project/src/parser.py, add tests to /Users/me/project/tests/test_parser.py"
+   ✓ "Edit ~/project/src/parser.py, add tests to ~/project/tests/test_parser.py"
    ✗ "In the parser module"
 
 4. WHAT ALREADY EXISTS
