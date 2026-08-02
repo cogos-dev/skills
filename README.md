@@ -68,7 +68,7 @@ Skills installed via tap are available in all Hermes sessions and appear in the 
 | **cogos-architecture** | corpus-cross-reference | CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against the substrate corpus |
 | **myrgic-org** | pr-triage, issue-triage | Org-management skills for the myrgic GitHub org |
 
-**Total: 22 skills across 7 plugin packages.**
+**Total: 27 skills across 7 plugin packages.**
 
 ## Cross-Compatibility
 
