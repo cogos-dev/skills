@@ -266,7 +266,7 @@ Key: `channel_client.py` reads `~/.claude/sessions/<parent-pid>.json` to discove
 ```json
 "cogos-channel-bridge": {
   "command": "/opt/homebrew/bin/uvx",
-  "args": ["--from", "/Users/slowbro/workspaces/cogos-channel-bridge", "cogos-channel-bridge"],
+  "args": ["--from", "~/workspaces/cogos-channel-bridge", "cogos-channel-bridge"],
   "env": {"COGOS_BASE_URL": "http://localhost:6931", "COGOS_CHANNELS": "bus_traces,bus_health"}
 }
 ```
@@ -300,10 +300,10 @@ Select with `model.provider: cogos`. The kernel routes to its configured provide
 ```yaml
 mcp_servers:
   cogos:
-    command: /Users/slowbro/.cog/bin/cogos
+    command: ~/.cog/bin/cogos
     args: [mcp, serve]
     env:
-      COG_ROOT: /Users/slowbro/workspaces/cog
+      COG_ROOT: ~/workspaces/cog
     timeout: 120
 ```
 Exposes 12 `cogos_*` tools from the cog-sandbox-mcp bridge.
@@ -329,7 +329,7 @@ Three-profile architecture for Chaz's setup:
 
 **Provider hot-swap (e.g. Eclipse → Sonnet):** Edit `model.default` and `model.provider` in `~/.hermes/profiles/<name>/config.yaml`, then `hermes gateway restart --profile <name>`. Keep the old provider block in `providers:` — it's inert when unselected and enables one-line rollback. Hermes resolves `anthropic` credentials from its credential store without a declared provider entry; set `api_key: ''`.
 
-**Access:** `hermes -p <name> chat` or `hermes profile alias <name> --name <alias>` for a wrapper script. Note: `cog` conflicts with the existing `/Users/slowbro/bin/cog` binary — use `hermes -p cog chat` directly.
+**Access:** `hermes -p <name> chat` or `hermes profile alias <name> --name <alias>` for a wrapper script. Note: `cog` conflicts with the existing `~/bin/cog` binary — use `hermes -p cog chat` directly.
 
 **Profile config for direct Eclipse access** (bypasses CogOS kernel routing):
 ```yaml
@@ -464,12 +464,12 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 - **Kernel binary is pinned** — `./scripts/cog install` to update; don't build from source in the cog workspace
 - **Hermes SOUL.md is separate** from Cog's SOUL.md — `~/.hermes/SOUL.md` governs the Hermes/Telegram persona; `~/workspaces/cog/SOUL.md` governs the cog workspace eigenform
 - **Eclipse 26B reasoning tokens** — the model is a reasoning model; without `reasoning_effort: "none"`, it burns tokens thinking before answering. CogOS's providers.local.yaml already sets this for the kernel's lmstudio-eclipse provider. For direct Hermes → Eclipse connections, either set `reasoning_effort: "none"` in the provider config or increase `max_tokens` to give it budget.
-- **`cog` alias blocked** — `hermes profile alias cog --name cog` fails because `/Users/slowbro/bin/cog` already exists. Use `hermes -p cog chat` or choose a different alias name.
+- **`cog` alias blocked** — `hermes profile alias cog --name cog` fails because `~/bin/cog` already exists. Use `hermes -p cog chat` or choose a different alias name.
 - **`hermes -z` / `hermes run` don't work for non-interactive one-shot testing** — `hermes run` doesn't exist as a subcommand; `hermes -z "prompt"` exists but produces empty output in a gateway context. The correct non-interactive one-shot pattern is `hermes -p <name> chat -q "prompt"` (the `-q` / `--query` flag on the `chat` subcommand).
 - **`terminal.cwd` does not update the system prompt's reported `Current working directory:`** — setting `terminal.cwd` in `config.yaml` routes terminal tool calls to that directory, but the system prompt line is populated from the gateway process's actual cwd (typically `~`). This is cosmetic/confusing but not functional — commands still run in the configured cwd. Don't rely on the reported cwd in the system prompt for orientation.
-- **Profile `home/` dir causes shell path confusion** — each Hermes profile gets a `~/.hermes/profiles/<name>/home/` directory for subprocess credential isolation. Shell expansions of `~` inside terminal tool calls may resolve to this fake home rather than `/Users/slowbro`. Always use **absolute paths** (`/Users/slowbro/workspaces/cog/...`) in terminal commands for the cog profile — never `~/...` or relative paths. Encode this in the profile's SOUL.md too.
-- **Cog profile SOUL.md should explicitly instruct absolute paths** — add a note like "Always use absolute paths in terminal commands: /Users/slowbro/workspaces/cog/ — never ~ or relative paths. The shell home may resolve to the profile's isolated home/ directory."
-- **CogOS MCP config bug: `COG_ROOT` env var is ignored — use `-workspace` flag** — the `mcp_servers.cogos` config in `~/.hermes/config.yaml` originally used `env: COG_ROOT: /Users/slowbro/workspaces/cog`, but the cogos binary's `mcp serve` subcommand does not read `COG_ROOT`. It requires `-workspace <path>` as a CLI flag. Without the correct flag, the server exits immediately with "could not detect workspace" and the MCP connection fails silently (Hermes shows `cogos: all tools enabled` in config but tools are not live). **Fix:** update the config args to `[mcp, serve, -workspace, /Users/slowbro/workspaces/cog]`. Do this via Python (`yaml.safe_load` → mutate → `yaml.dump`) since `hermes config set` serializes list values as strings rather than YAML lists, causing a Pydantic validation error. After fixing, verify with `hermes mcp test cogos` — should show `✓ Connected` and tool count. Then restart the gateway to load tools into the live session.
+- **Profile `home/` dir causes shell path confusion** — each Hermes profile gets a `~/.hermes/profiles/<name>/home/` directory for subprocess credential isolation. Shell expansions of `~` inside terminal tool calls may resolve to this fake home rather than `/Users/<you>`. Always use **absolute paths** (`/Users/<you>/workspaces/cog/...`) in terminal commands for the cog profile — never `~/...` or relative paths. Encode this in the profile's SOUL.md too.
+- **Cog profile SOUL.md should explicitly instruct absolute paths** — add a note like "Always use absolute paths in terminal commands: /Users/<you>/workspaces/cog/ — never ~ or relative paths. The shell home may resolve to the profile's isolated home/ directory."
+- **CogOS MCP config bug: `COG_ROOT` env var is ignored — use `-workspace` flag** — the `mcp_servers.cogos` config in `~/.hermes/config.yaml` originally used `env: COG_ROOT: ~/workspaces/cog`, but the cogos binary's `mcp serve` subcommand does not read `COG_ROOT`. It requires `-workspace <path>` as a CLI flag. Without the correct flag, the server exits immediately with "could not detect workspace" and the MCP connection fails silently (Hermes shows `cogos: all tools enabled` in config but tools are not live). **Fix:** update the config args to `[mcp, serve, -workspace, ~/workspaces/cog]`. Do this via Python (`yaml.safe_load` → mutate → `yaml.dump`) since `hermes config set` serializes list values as strings rather than YAML lists, causing a Pydantic validation error. After fixing, verify with `hermes mcp test cogos` — should show `✓ Connected` and tool count. Then restart the gateway to load tools into the live session.
 - **CogOS MCP tools require gateway restart to activate** — after fixing the config, tools do not hot-reload into a running session. `hermes gateway restart` is required. After restart, call `mcp_cogos_cog_get_state` to confirm the kernel is reachable and tools are live. The `cog_read_cogdoc` URI must include the `.cog.md` extension — the extensionless form does not resolve.
 - **CogOS MCP startup failure diagnosis** — check `~/.hermes/logs/mcp-stderr.log`. Repeated "could not detect workspace" errors mean the binary was exiting immediately (wrong args or macOS subprocess permission denied). A successful start shows `INFO process: node manifest loaded` and `INFO sessions: replay complete`. Early failures in the log do not prevent later successful connections — look at the most recent block.
 - **`handleChat` wraps ALL kernel-routed requests into CogBlocks** — block recording, foveated context, and CogBus events happen for every request through `:6931/v1/chat/completions`. The gap is identity binding, not wrapping. Only the identity (TargetIdentity) is missing when no HarnessBindingCRD exists; everything else fires. Hermes default profile (Anthropic direct) gets none of this.
@@ -484,8 +484,8 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
   ```yaml
   mcp_servers:
     cogos:
-      command: /Users/slowbro/.cog/bin/cogos
-      args: [mcp, serve, -workspace, /Users/slowbro/workspaces/cog]
+      command: ~/.cog/bin/cogos
+      args: [mcp, serve, -workspace, ~/workspaces/cog]
       timeout: 120
       connect_timeout: 60
   ```
@@ -501,7 +501,7 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 
 - **`com.cogos.observatory` plist — script has zsh parse error** — observatory sweep script at `~/workspaces/cog/.cog/scripts/observers/observatory-sweep.sh` has a syntax error (`parse error near ';&'` at line 8). The launchd service (`OnDemand: true`) fires and immediately fails silently. Check: `tail -20 ~/workspaces/cog/.cog/run/observers/observatory-launchd.log`. Fix the script before assuming sweeps are running.
 
-- **`com.slowbro.cog-sandbox-mcp` exit 1 on every start** — crashes at startup with `FileNotFoundError: workspace 'cogos-dev' does not exist`. The plist references a workspace at `~/workspaces/cogos-dev` which does not exist. Fix: check the plist/config and remove or correct the stale workspace entry.
+- **`com.<you>.cog-sandbox-mcp` exit 1 on every start** — crashes at startup with `FileNotFoundError: workspace 'cogos-dev' does not exist`. The plist references a workspace at `~/workspaces/cogos-dev` which does not exist. Fix: check the plist/config and remove or correct the stale workspace entry.
 
 - **`hermes update` is the correct update pattern** — run `hermes update` from the gateway session. It stashes local changes, pulls `origin/main`, runs pip install, restores stash. Do NOT use `pip install -e .` directly (Python version mismatch with venv) or `git pull` alone (leaves pip packages stale). After update: `hermes --version` to confirm. If local changes conflict after stash restore, review `git diff` before restarting.
 
@@ -516,10 +516,10 @@ A large multi-year theoretical research corpus lives in the substrate, mostly un
 - **`patch` tool corrupts files containing API keys** — when you use `mcp_patch` on a config file that has a real API key, the diff output masks the key as `***`. If that same file is subsequently patched again using the masked form as `old_string`, the literal `***` gets written to disk, producing invalid YAML (YAML interprets `***` as an alias anchor). Symptoms: `yaml.scanner.ScannerError: while scanning an alias` on the line with the api_key, and gateway log `ERROR cli: Failed to save config: found undefined alias '**:...'`. **Fix:** strip the api_key from config.yaml entirely (set to `''`) and let the credential in `auth.json` / the credential pool carry it — Hermes resolves provider credentials from auth.json by provider name, not from config.yaml. After stripping, verify with `python3 -c "import yaml; yaml.safe_load(open('path'))"` before restarting.
 - **Secret redactor blocks `write_file` and `terminal` for credential strings** — when writing API keys or tokens to config files or `.env`, the Hermes secret redactor silently replaces `sk-lm-*`, `sk-or-*`, bot tokens, and similar patterns with `***` in both `write_file` content and `terminal` stdout/command strings. Use the raw Python subprocess bypass pattern below to write secrets without routing through Hermes I/O:
   ```python
-  import subprocess, yaml
+  import os, subprocess, yaml
   token = subprocess.run(
       ["/usr/libexec/PlistBuddy", "-c", "Print :EnvironmentVariables:LMS_DESKTOP_API_TOKEN",
-       "/Users/slowbro/Library/LaunchAgents/com.cogos.kernel.plist"],
+       os.path.expanduser("~/Library/LaunchAgents/com.cogos.kernel.plist")],
       capture_output=True, text=True
   ).stdout.strip()
   # Write config without the value ever appearing in Hermes-observed output
@@ -682,11 +682,12 @@ strings rather than YAML lists, causing Pydantic validation errors on restart. U
 instead when setting any key that expects a list (e.g. `mcp_servers.<name>.args`):
 
 ```python
-import yaml
-with open('/Users/slowbro/.hermes/config.yaml', 'r') as f:
+import os, yaml
+config_path = os.path.expanduser('~/.hermes/config.yaml')
+with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
-config['mcp_servers']['cogos']['args'] = ['mcp', 'serve', '-workspace', '/Users/slowbro/workspaces/cog']
-with open('/Users/slowbro/.hermes/config.yaml', 'w') as f:
+config['mcp_servers']['cogos']['args'] = ['mcp', 'serve', '-workspace', os.path.expanduser('~/workspaces/cog')]
+with open(config_path, 'w') as f:
     yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 ```
 
@@ -863,7 +864,7 @@ Before designing anything in the CogOS/Myrgic ecosystem, run this sweep to find 
 git -C ~/workspaces/cog worktree list --porcelain
 
 # 2. Check agent-worktrees for topic-specific branches
-ls /Users/slowbro/workspaces/agent-worktrees/
+ls ~/workspaces/agent-worktrees/
 
 # 3. Find key files across ALL worktrees (not just main)
 find ~/workspaces/cog -name '*.go' | xargs grep -l 'TopicKeyword' 2>/dev/null \
@@ -933,7 +934,7 @@ The **Conversations Observatory** is a CogOS Reconcilable that indexes all Claud
 
 **Status (as of 2026-05-31):** Merged to main as PR #300, race fix in PR #352. Kernel rebuilt tonight (`make install`, v0.13.0) and restarted — **the observatory is now active**. The MCP tools (`cog_search_conversations`, `cog_get_conversation_turn`, `cog_list_conversations`) are registered in the kernel's MCP stdio server. Note: these tools are available to Cog (Claude Code agent) via the daemon's stdio MCP server, NOT via Hermes's HTTP-facing cogos MCP connection. Hermes can search raw JSONLs directly (see pattern below) until the Hermes observer is landed.
 
-**Why it matters for Hermes:** Once active, Hermes can call `cog_search_conversations` to semantically query Chaz's full Claude Code history — every session, every turn. This is the correct integration path for Hermes to understand what's been built in the `cog` workspace, rather than grepping raw JSONL files. The observatory indexes from `~/.claude/projects/-Users-slowbro/` on every reconcile cycle and exposes the corpus via MCP.
+**Why it matters for Hermes:** Once active, Hermes can call `cog_search_conversations` to semantically query Chaz's full Claude Code history — every session, every turn. This is the correct integration path for Hermes to understand what's been built in the `cog` workspace, rather than grepping raw JSONL files. The observatory indexes from `~/.claude/projects/-Users-<you>/` on every reconcile cycle and exposes the corpus via MCP.
 
 **Hermes observer (`internal/hermes/`)** — a sibling Reconcilable built in session `c7596ecb` (2026-05-30) that tails Hermes `state.db`, indexes turns into the substrate, and exposes `cog_search_hermes` / `cog_list_hermes_sessions`. Built as commit `5aac05e` on an orphaned branch — NOT yet merged to main. To land it: `cd ~/workspaces/myrgic/cogos && git checkout -b feat/hermes-observer 5aac05e && go test ./internal/hermes/... && make install`. Once merged, Hermes session history becomes queryable from the substrate symmetrically with Claude Code history.
 
@@ -942,7 +943,7 @@ The **Conversations Observatory** is a CogOS Reconcilable that indexes all Claud
 import json, os, glob
 from datetime import datetime
 
-base = os.path.expanduser('~/.claude/projects/-Users-slowbro/')
+base = os.path.expanduser('~/.claude/projects/-Users-<you>/')
 files = sorted(glob.glob(base + '*.jsonl'), key=os.path.getmtime, reverse=True)[:30]
 
 for f in files:

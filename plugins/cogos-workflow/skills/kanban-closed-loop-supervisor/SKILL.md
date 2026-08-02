@@ -8,7 +8,7 @@ description: >
   Extends kanban-orchestrator; does NOT replace it.
 version: 1.0.0
 platforms: [linux, macos, windows]
-canonical_source: /Users/slowbro/.hermes/hermes-agent/skills/devops/kanban-closed-loop-supervisor/SKILL.md
+canonical_source: "~/.hermes/hermes-agent/skills/devops/kanban-closed-loop-supervisor/SKILL.md"
 projection_note: >
   This file is a marketplace projection. Canonical source lives in the Hermes
   agent repo at the path above (canonical_source). Update canonical first;
