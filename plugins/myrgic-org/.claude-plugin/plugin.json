@@ -5,8 +5,8 @@
   "author": {
     "name": "myrgic"
   },
-  "homepage": "https://github.com/myrgic/skills",
-  "repository": "https://github.com/myrgic/skills",
+  "homepage": "https://github.com/myrgic/plugins",
+  "repository": "https://github.com/myrgic/plugins",
   "license": "MIT",
   "keywords": ["github", "org-management", "triage", "gh-cli"]
 }
