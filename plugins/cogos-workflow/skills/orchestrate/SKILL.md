@@ -317,9 +317,9 @@ The examples below are accurate records from Claude Code sessions (Tier 1 = Opus
 
 ### Wave C — 4-worker config and research (2026-05-13)
 
-**Setup:** Discord wiring was broken (config.hcl missing), the harness routing gap from Wave B needed a fix PR, provider names were misaligned with machine names (mlx-gemma should be mlx-lm), and vLLM feasibility on Eclipse needed a spike.
+**Setup:** Discord wiring was broken (config.hcl missing), the harness routing gap from Wave B needed a fix PR, provider names were misaligned with machine names (mlx-gemma should be mlx-lm), and vLLM feasibility on the desktop node needed a spike.
 
-**Structure:** 4 parallel workers: Discord wiring fix (write, applied config.hcl, auto-merge authorized), harness routing PR (write to worktree, opened PR #234, leave for review), provider rename (write to providers.local.yaml), vLLM-on-Eclipse feasibility spike (read-only research + cogdoc). The Eclipse spike returned WAIT because the worker discovered Eclipse runs Windows, making ROCm irrelevant.
+**Structure:** 4 parallel workers: Discord wiring fix (write, applied config.hcl, auto-merge authorized), harness routing PR (write to worktree, opened PR #234, leave for review), provider rename (write to providers.local.yaml), vLLM-on-desktop-node feasibility spike (read-only research + cogdoc). The spike returned WAIT because the worker discovered that node runs Windows, making ROCm irrelevant.
 
 **What was novel:** The vLLM spike worker was dispatched into a cloud-provider feasibility question but independently discovered the OS constraint and returned a WAIT verdict with the reasoning. That's the pattern working correctly — workers with clear ground states and read access to substrate can self-terminate on relevant findings.
 
@@ -375,7 +375,7 @@ Command: `/orchestrate` invoked implicitly (Tier 1 Opus dispatched masters as th
 Workers dispatched: 17 across Waves A, B, C
 PRs produced: #234 (harness routing), #6 (cogos-architecture plugin), #5 (local-review skill), and multiple merged PRs across cogos main
 Closed-loop run: PR #234 fix-review loop, APPROVED at round 4, 11 tests added
-Notes: First session to use the three-tier shape consistently. The vLLM-on-Eclipse spike (Wave C W4) demonstrated autonomous WAIT-verdict from a worker based on substrate observation. The PR #234 closed-loop is the founding reference for the closed-loop variant.
+Notes: First session to use the three-tier shape consistently. The vLLM-on-desktop-node spike (Wave C W4) demonstrated autonomous WAIT-verdict from a worker based on substrate observation. The PR #234 closed-loop is the founding reference for the closed-loop variant.
 
 ---
 
