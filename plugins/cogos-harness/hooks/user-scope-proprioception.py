@@ -39,11 +39,24 @@ alongside the elapsed-time state.
 Third line (when available): the kernel-vitals segment, a pre-formatted
 one-liner written by kernel-vitals-probe.py (fired detached, below, when its
 cache goes stale) — kernel health, error/anomaly counts, release/PR status.
-Read-only here; this hook never makes a network call itself.
+This hook itself never makes a network call to PRODUCE that line — it only
+reads the probe's cache.
+
+Session heartbeat (#17): when that cache already shows the kernel
+reachable (a round-trip some prior probe cycle already completed, read
+here for free), this hook also POSTs the session heartbeat — the REST
+counterpart of cog_heartbeat_session — so a seat's LastSeen advances
+without needing its own dedicated poller. This is the one network call
+this hook makes, and it is conditional: zero extra probes are ever fired
+against an absent/unreachable kernel, and it fires at most once per
+UserPromptSubmit turn (this hook runs once per turn by construction).
 
 Safety contract: never raises, always exits 0. Short-circuit on any error.
-Performance target: <200ms (git rev-parse cached by OS; no network calls —
-all network-touching work happens in the detached probe subprocess).
+Performance target: <200ms (git rev-parse cached by OS; the vitals read is
+a local cache read, not a network call — only the conditional heartbeat
+POST above touches the network, and its timeout is deliberately tight
+(HEARTBEAT_TIMEOUT) so that even a kernel that accepts connections and
+then hangs cannot push this hook meaningfully past its budget).
 """
 
 from __future__ import annotations
@@ -52,6 +65,9 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,6 +80,23 @@ _DATA_DIR = Path(os.environ.get("CLAUDE_PLUGIN_DATA") or (Path.home() / ".claude
 # Where this plugin's own sibling scripts live (the detached probe this hook
 # fires). Falls back to the same directory as this file for standalone use.
 _PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or str(Path(__file__).resolve().parent.parent))
+
+# COGOS_KERNEL_URL takes precedence when set; COGOS_KERNEL_PORT is a
+# localhost-only convenience default. Same precedence as
+# seat-identity-heal.py / kernel-vitals-probe.py so every hook resolves to
+# the same kernel. Only used by the conditional heartbeat POST (#17) --
+# this hook otherwise stays network-free, per its original contract.
+KERNEL_URL = os.environ.get("COGOS_KERNEL_URL") or \
+    f"http://127.0.0.1:{os.environ.get('COGOS_KERNEL_PORT', '6931')}"
+# Deliberately far below the other hooks' 1.0-1.5s: this one call sits on
+# the UserPromptSubmit critical path, so its timeout is the per-turn tax
+# whenever the kernel accepts a connection but stops answering (a hang, not
+# a refusal -- a refusal returns in ~0.1s). The vitals cache can keep
+# reporting "reachable" for up to _KERNEL_VITALS_TTL after such a hang, so
+# that tax would otherwise be paid on every turn for a minute and a half.
+# A localhost heartbeat completes in ~20ms; 0.25s is 10x headroom, and a
+# missed heartbeat is free -- the next turn sends another.
+HEARTBEAT_TIMEOUT = 0.25
 
 
 def _find_cog_workspace() -> Path | None:
@@ -323,11 +356,11 @@ def _latest_ctx_tokens(transcript_path: str | None) -> int | None:
         return None
 
 
-def _context_pct_seg(data: dict, transcript_path: str | None) -> str:
-    """`ctx N%` of the context window — so the budget pressure is ambient every
-    turn. Prefers the harness-provided percentage; falls back to transcript
-    usage / window. Prefixes ⚠ when filling up (>=75%). One-turn-lagged like
-    the model read. Never raises."""
+def _context_pct_value(data: dict, transcript_path: str | None) -> float | None:
+    """Raw context-window-used percentage (0-100), shared by the display
+    segment and the heartbeat payload's context_usage field. Prefers the
+    harness-provided percentage; falls back to transcript usage / window.
+    Never raises; None on any failure or missing data."""
     try:
         cw = data.get("context_window") or {}
         pct = cw.get("used_percentage")
@@ -337,10 +370,22 @@ def _context_pct_seg(data: dict, transcript_path: str | None) -> str:
             if tok is None:
                 tok = _latest_ctx_tokens(transcript_path)
             if not tok or size <= 0:
-                return ""
+                return None
             pct = int(tok) * 100 / size
-        pct = round(float(pct))
-        return f"{'⚠' if pct >= 75 else ''}ctx {pct}%"
+        return round(float(pct), 1)
+    except Exception:
+        return None
+
+
+def _context_pct_seg(pct: float | None) -> str:
+    """`ctx N%` of the context window — so the budget pressure is ambient every
+    turn. Prefixes ⚠ when filling up (>=75%). One-turn-lagged like the model
+    read. Never raises."""
+    try:
+        if pct is None:
+            return ""
+        p = round(pct)
+        return f"{'⚠' if p >= 75 else ''}ctx {p}%"
     except Exception:
         return ""
 
@@ -370,16 +415,59 @@ def _maybe_refresh_kernel_vitals() -> None:
         pass
 
 
-def _kernel_vitals_seg() -> str:
-    """Read the pre-formatted vitals line from the probe cache. The probe
-    (kernel-vitals-probe.py) is the single formatter; this is just a read.
-    No network. Never raises."""
+def _read_kernel_vitals() -> dict:
+    """Read the probe's cached vitals dict whole (not just the formatted
+    line) so callers can also inspect kernel.reachable for the heartbeat
+    gate below. The probe (kernel-vitals-probe.py) is the single writer;
+    this is just a read. No network. Never raises."""
     try:
         if not _KERNEL_VITALS.exists():
-            return ""
-        return json.loads(_KERNEL_VITALS.read_text() or "{}").get("line", "")
+            return {}
+        d = json.loads(_KERNEL_VITALS.read_text() or "{}")
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _kernel_vitals_seg(vit: dict) -> str:
+    """The pre-formatted vitals line from the probe cache. No network,
+    no re-formatting -- kernel-vitals-probe.py is the single formatter.
+    Never raises."""
+    try:
+        return vit.get("line", "")
     except Exception:
         return ""
+
+
+def _maybe_heartbeat(vit: dict, session_id: str, context_pct: float | None) -> None:
+    """Session heartbeat fallback (#17): POST /v1/sessions/{id}/heartbeat,
+    the REST counterpart of cog_heartbeat_session, but ONLY when the
+    vitals cache we just read already shows the kernel reachable -- i.e.
+    a round-trip some probe cycle already completed. This adds zero new
+    probes: if the cache says unreachable (or doesn't exist yet), this
+    is a no-op, full stop. Fires at most once per call (this hook runs
+    once per UserPromptSubmit turn, so that bounds it to once per turn).
+    Never raises; the response is read and discarded."""
+    try:
+        if not session_id:
+            return
+        if not vit.get("kernel", {}).get("reachable"):
+            return
+        body: dict = {"status": "active"}
+        if context_pct is not None:
+            body["context_usage"] = context_pct
+        req = urllib.request.Request(
+            f"{KERNEL_URL}/v1/sessions/{urllib.parse.quote(session_id, safe='')}/heartbeat",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=HEARTBEAT_TIMEOUT) as r:
+            r.read()
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    except Exception:
+        pass
 
 
 def _emit_no_op(event_name: str) -> None:
@@ -432,13 +520,16 @@ def main() -> int:
     _maybe_refresh_kernel_vitals()
     temporal = _temporal_line(session_id)
     model_seg = _model_segment(session_id, transcript_path)
-    ctx_seg = _context_pct_seg(data, transcript_path)
+    context_pct = _context_pct_value(data, transcript_path)
+    ctx_seg = _context_pct_seg(context_pct)
     second_parts = [p for p in (temporal, model_seg, ctx_seg) if p]
     if second_parts:
         lines.append("  " + " | ".join(second_parts))
-    vitals_seg = _kernel_vitals_seg()
+    vit = _read_kernel_vitals()
+    vitals_seg = _kernel_vitals_seg(vit)
     if vitals_seg:
         lines.append("  " + vitals_seg)
+    _maybe_heartbeat(vit, session_id, context_pct)
     lines.append("</cogos_proprioception>")
 
     context = "\n".join(lines)

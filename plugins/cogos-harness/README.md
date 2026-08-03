@@ -28,12 +28,17 @@ missing dependency):
 
 | Hook | Event | What it does |
 |---|---|---|
-| `user-scope-session-start.py` | `SessionStart` (`*`) | Locates a cog workspace (via `COGOS_WORKSPACE` or `~/workspaces/cog`) and delegates to its `session-start.d` presence handler, if one exists. No-ops with no workspace. |
+| `user-scope-session-start.py` | `SessionStart` (`*`) | Locates a cog workspace (via `COGOS_WORKSPACE` or `~/workspaces/cog`) and delegates to its `session-start.d` presence handler, if one exists. **Presence is registry-gated, not workspace-gated**: after delegation, this hook asks the kernel whether the session is actually in the session registry (`GET /v1/sessions/presence`) and, only if it is absent, registers the seat itself via `POST /v1/sessions/register` (session_id from the hook's stdin, workspace=cwd, role=`$COGOS_SEAT_ROLE` or `claude-code`, hostname, `extras.source=plugin-startup`) — the exact REST counterpart of `cog_register_session`. The registry, not handler-existence, is the gate: the workspace's `51-presence-started.py` emits a `presence.started` *bus* event and never writes the session registry, so a handler running is no evidence the seat was registered. Checking presence also means an already-registered seat is left alone, so a `resume`/`compact` `SessionStart` never overwrites a durable role (`register` is a full-row replace). No-ops entirely when the kernel is unreachable. |
 | `seat-identity-heal.py` | `SessionStart` (`*`) | Re-asserts a durable session role against the kernel if `~/.cog/status/seat-identity.json` exists. No-ops with no identity file. |
 | `compaction-handoff.py` | `SessionStart` (`compact`) | Re-injects operator-verbatim messages, in-flight background task state, and uncommitted-repo status after compaction — a bypass path around what the compaction summary flattens. |
-| `user-scope-session-end.py` | `SessionEnd` (`*`) | Presence-ended counterpart to the session-start hook. |
-| `user-scope-proprioception.py` | `UserPromptSubmit` (`*`) | Emits a one-line `<cogos_proprioception>` block outside a cog workspace: branch, local wall-clock + day-phase, session-elapsed time, last-turn model, context-window usage, and (via the detached probe below) kernel health. |
+| `user-scope-session-end.py` | `SessionEnd` (`*`) | Presence-ended counterpart to the session-start hook: delegates to the workspace's `session-end.d` handler, then — gated on the same registry lookup — `POST`s `/v1/sessions/{id}/end` for the session if it is still listed as live, the REST counterpart of `cog_end_session`. Mirroring the start side matters: `51-presence-ended.py` also only emits a bus event, so handler-gating here would strand every seat the start-side fallback registered. |
+| `user-scope-proprioception.py` | `UserPromptSubmit` (`*`) | Emits a one-line `<cogos_proprioception>` block outside a cog workspace: branch, local wall-clock + day-phase, session-elapsed time, last-turn model, context-window usage, and (via the detached probe below) kernel health. When that cached vitals read already shows the kernel reachable, also `POST`s a session heartbeat (`/v1/sessions/{id}/heartbeat`, the REST counterpart of `cog_heartbeat_session`) — no extra network probe, at most once per turn, silently skipped whenever the kernel is absent, and on a tight 0.25s timeout because this is the one hook on the per-turn critical path. |
 | `kernel-vitals-probe.py` | fired detached by the proprioception hook | Off-the-critical-path collector: kernel `/health`, error/anomaly counts from the kernel log, process uptime, release/PR status via `gh`. Writes a cache the proprioception hook reads; never called synchronously. |
+
+All three lifecycle hooks resolve the kernel the same way: `COGOS_KERNEL_URL`
+wins when set, else `http://127.0.0.1:${COGOS_KERNEL_PORT:-6931}` — the same
+precedence as `seat-identity-heal.py` and `kernel-vitals-probe.py`, so a
+non-default kernel location only needs to be set once.
 
 **Skills** (`skills/`): `btw` (fork the session into a parenthetical aside
 via `cog_fork_session`), `consolidate` (reflective session-arc capture:
@@ -107,16 +112,20 @@ plugin should absorb without a separate decision:
 - `MYRGIC_REPOS_ROOT` — local checkouts of myrgic-org repos; falls back to
   `~/workspaces/myrgic`
 - `COGOS_KERNEL_PORT` — kernel HTTP port on `127.0.0.1`, read by the vitals
-  probe, `seat-identity-heal.py`, and the bundled `.mcp.json` (via
-  `${COGOS_KERNEL_PORT:-6931}`); falls back to `6931`
+  probe, `seat-identity-heal.py`, the three session-lifecycle hooks
+  (`user-scope-session-start.py`, `user-scope-session-end.py`,
+  `user-scope-proprioception.py`'s heartbeat), and the bundled `.mcp.json`
+  (via `${COGOS_KERNEL_PORT:-6931}`); falls back to `6931`
 - `COGOS_KERNEL_URL` — full kernel base URL, for a kernel that isn't on
-  `127.0.0.1`; takes precedence over `COGOS_KERNEL_PORT` in the vitals
-  probe and `seat-identity-heal.py` (the bundled `.mcp.json` only resolves
-  `COGOS_KERNEL_PORT`, so a non-default host still needs a hand-edited or
-  project-level `.mcp.json` override); falls back to
-  `http://127.0.0.1:6931`
+  `127.0.0.1`; takes precedence over `COGOS_KERNEL_PORT` everywhere above
+  except the bundled `.mcp.json` (which only resolves `COGOS_KERNEL_PORT`,
+  so a non-default host still needs a hand-edited or project-level
+  `.mcp.json` override); falls back to `http://127.0.0.1:6931`
 - `COGOS_KERNEL_REPO` — `owner/repo` for the kernel release/PR checks in
   the vitals probe; falls back to `myrgic/cogos`
+- `COGOS_SEAT_ROLE` — the `role` field the session-start fallback
+  registers with when it fires (no cog workspace, or a workspace with no
+  presence handler); falls back to `claude-code`
 
 ## Dogfood plan
 
