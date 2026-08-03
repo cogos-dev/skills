@@ -122,7 +122,10 @@ def _end_direct(session_id: str) -> None:
     -- all silently ignored, matching the rest of this hook's contract)."""
     req = urllib.request.Request(
         f"{KERNEL_URL}/v1/sessions/{urllib.parse.quote(session_id, safe='')}/end",
-        data=json.dumps({"reason": "plugin-shutdown"}).encode(),
+        # "session_end_hook" is the fleet-wide end_reason vocabulary
+        # (established by the settings.local.json session-awareness hook);
+        # consumers key on it, so the plugin fallback must not fork it.
+        data=json.dumps({"reason": "session_end_hook"}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )

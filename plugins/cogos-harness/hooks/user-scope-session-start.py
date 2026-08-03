@@ -178,18 +178,23 @@ def _registry_state(session_id: str) -> str:
         return "unreachable"
 
 
-def _register_direct(session_id: str, workspace: str) -> None:
+def _register_direct(session_id: str, workspace: str, source: str = "") -> None:
     """POST /v1/sessions/register -- the exact REST counterpart of the
     cog_register_session MCP tool, same endpoint/env conventions as
     seat-identity-heal.py's _register(). Fire-and-forget: the response is
     read (to let the connection close cleanly) but never inspected --
-    presence registration is best-effort by design, per #17."""
+    presence registration is best-effort by design, per #17.
+
+    extras.source carries the harness's own SessionStart source value
+    (startup | resume | clear | compact) so registry rows share one
+    vocabulary regardless of which lifecycle path registered them;
+    extras.via records that this row came from the plugin fallback."""
     body = {
         "session_id": session_id,
         "workspace": workspace,
         "role": os.environ.get("COGOS_SEAT_ROLE", "claude-code"),
         "hostname": socket.gethostname(),
-        "extras": {"source": "plugin-startup"},
+        "extras": {"source": source or "startup", "via": "cogos-harness"},
     }
     req = urllib.request.Request(
         f"{KERNEL_URL}/v1/sessions/register",
@@ -226,7 +231,8 @@ def _maybe_register_direct(hook_data: dict) -> None:
         if _registry_state(session_id) != "absent":
             return
         workspace = str(hook_data.get("cwd") or os.getcwd())
-        _register_direct(session_id, workspace)
+        source = str(hook_data.get("source") or "")
+        _register_direct(session_id, workspace, source)
     except Exception:
         pass
 
