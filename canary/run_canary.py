@@ -14,8 +14,9 @@ the installed package for leaked personal paths/identifiers, and cleans up
 any session it registered on the live kernel afterward.
 
 Sibling of the Hermes canary: same JSON report + digest + exit-code
-contract, this one's subject is the Claude Code membrane instead of the
-Hermes agent runtime. `name` in the report is "membrane".
+contract (see "Exit codes" below), this one's subject is the Claude Code
+membrane instead of the Hermes agent runtime. `name` in the report is
+"membrane".
 
 Ground truth for the sandbox recipe: the fresh-HOME install pattern
 documented in the sandboxed-cc-seat-pattern memory file. macOS has no
@@ -25,9 +26,20 @@ subprocess timeout, never a shelled-out `timeout`.
 Usage:
     python3 canary/run_canary.py [--out PATH] [--keep-sandbox]
 
-Exit code: 0 if every check passed, 1 otherwise. A JSON report is written
-to --out (default: canary/.last_run.json, gitignored) and a human digest
-is printed to stdout.
+Exit codes -- the sibling's three-tier vocabulary, so a wrapper can triage
+both canaries with one rule:
+
+    0  clean   every check passed
+    1  drift   upstream/marketplace moved in a way worth a human look, but
+               nothing this canary asserts is broken. Reserved: no check
+               currently emits it. It exists so a future drift-class signal
+               can be added without colliding with "broken", and so exit 1
+               never means the same thing here as a real regression.
+    2  broken  at least one check failed
+
+A JSON report is written to --out (default: canary/.last_run.json,
+gitignored) and a human digest is printed to stdout. The report carries the
+same code in report["exit_code"].
 """
 
 from __future__ import annotations
@@ -48,6 +60,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 NAME = "membrane"
+
+# Three-tier exit vocabulary, shared with the Hermes canary. See the module
+# docstring: 1 is deliberately reserved for drift so that a real regression
+# here and a benign upstream move there never share an exit code.
+EXIT_CLEAN = 0
+EXIT_DRIFT = 1
+EXIT_BROKEN = 2
+
 MARKETPLACE_REPO = "myrgic/plugins"
 PLUGIN_SPEC = "cogos-harness@plugins"
 PLUGIN_NAME = "cogos-harness"
@@ -196,7 +216,7 @@ def install_plugin(sandbox_home: Path, work_dir: Path, report: dict) -> bool:
         "stderr": r1["stderr"].decode(errors="replace")[-2000:],
     })
     if not ok1:
-        report["failures"].append("claude plugin marketplace add myrgic/plugins failed")
+        report["failures"].append(f"claude plugin marketplace add {MARKETPLACE_REPO} failed")
         return False
 
     r2 = run(["claude", "plugin", "install", PLUGIN_SPEC],
@@ -614,8 +634,14 @@ def build_digest(report: dict) -> str:
         if s.get("name") == "validate_strict":
             lines.append(f"validate --strict: {'PASS' if s['ok'] else 'FAIL'}")
 
-    scrub = report.get("scrub") or {}
-    if scrub.get("clean"):
+    # report["scrub"] is None when the run aborted before the scrub could
+    # execute (e.g. marketplace add / install failed). Say so explicitly --
+    # printing "0 MATCH(ES)" for a check that never ran reads as "the leak
+    # guard passed", which is the one thing a canary must never fabricate.
+    scrub = report.get("scrub")
+    if scrub is None:
+        lines.append("scrub-grep: NOT RUN (aborted before the package was installed)")
+    elif scrub.get("clean"):
         lines.append("scrub-grep: CLEAN")
     else:
         lines.append(f"scrub-grep: {len(scrub.get('matches', []))} MATCH(ES)")
@@ -628,6 +654,15 @@ def build_digest(report: dict) -> str:
         lines.append("failures:")
         for f in report["failures"]:
             lines.append(f"  - {f}")
+
+    lines.append("")
+    lines.append(
+        {
+            EXIT_CLEAN: "RESULT: clean",
+            EXIT_DRIFT: "RESULT: drift",
+            EXIT_BROKEN: "RESULT: broken",
+        }[report.get("exit_code", EXIT_BROKEN)]
+    )
 
     return "\n".join(lines)
 
@@ -715,13 +750,14 @@ def main() -> int:
 
     report["finished_at"] = now_iso()
     report["ok"] = len(report["failures"]) == 0
+    report["exit_code"] = EXIT_CLEAN if report["ok"] else EXIT_BROKEN
 
     write_report(report, out_path)
     digest = build_digest(report)
     print(digest)
     print(f"\nfull report: {out_path}")
 
-    return 0 if report["ok"] else 1
+    return report["exit_code"]
 
 
 if __name__ == "__main__":
