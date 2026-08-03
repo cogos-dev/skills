@@ -92,19 +92,6 @@ plugin should absorb without a separate decision:
   against an already-running kernel; it does not install or start one. See
   the kernel repo's own install docs for that step.
 
-## Known limitation: kernel port
-
-The bundled MCP server and the vitals probe both default to the kernel's
-default port, `6931`. The probe honors `COGOS_KERNEL_PORT` if set in your
-shell environment; the MCP server's `.mcp.json` does not currently support
-env-var substitution for the port (only the plugin-root/project-dir
-placeholders resolve there). Running the kernel on a non-default port
-means editing the installed plugin's `.mcp.json` by hand, or layering your
-own `cogos-kernel` entry in a project/user `.mcp.json` that takes
-precedence. Fixing this properly means either the kernel standardizing on
-one port or Claude Code adding generic env-var substitution to MCP server
-URLs — tracked as a follow-up, not solved in this increment.
-
 ## Requirements
 
 - `python3` on `PATH`
@@ -119,10 +106,15 @@ URLs — tracked as a follow-up, not solved in this increment.
   `~/workspaces/cog`
 - `MYRGIC_REPOS_ROOT` — local checkouts of myrgic-org repos; falls back to
   `~/workspaces/myrgic`
-- `COGOS_KERNEL_PORT` — kernel HTTP port for the vitals probe only (see
-  "Known limitation" above); falls back to `6931`
-- `COGOS_KERNEL_URL` — full kernel base URL for `seat-identity-heal.py`;
-  falls back to `http://127.0.0.1:6931`
+- `COGOS_KERNEL_PORT` — kernel HTTP port on `127.0.0.1`, read by the vitals
+  probe, `seat-identity-heal.py`, and the bundled `.mcp.json` (via
+  `${COGOS_KERNEL_PORT:-6931}`); falls back to `6931`
+- `COGOS_KERNEL_URL` — full kernel base URL, for a kernel that isn't on
+  `127.0.0.1`; takes precedence over `COGOS_KERNEL_PORT` in the vitals
+  probe and `seat-identity-heal.py` (the bundled `.mcp.json` only resolves
+  `COGOS_KERNEL_PORT`, so a non-default host still needs a hand-edited or
+  project-level `.mcp.json` override); falls back to
+  `http://127.0.0.1:6931`
 - `COGOS_KERNEL_REPO` — `owner/repo` for the kernel release/PR checks in
   the vitals probe; falls back to `myrgic/cogos`
 

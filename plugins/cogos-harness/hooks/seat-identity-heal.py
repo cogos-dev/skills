@@ -33,7 +33,11 @@ import urllib.request
 from pathlib import Path
 
 IDENTITY_PATH = Path.home() / ".cog" / "status" / "seat-identity.json"
-KERNEL_URL = os.environ.get("COGOS_KERNEL_URL", "http://127.0.0.1:6931")
+# COGOS_KERNEL_URL takes precedence when set; COGOS_KERNEL_PORT is a
+# localhost-only convenience default. Same precedence as
+# kernel-vitals-probe.py so both hooks resolve to the same kernel.
+KERNEL_URL = os.environ.get("COGOS_KERNEL_URL") or \
+    f"http://127.0.0.1:{os.environ.get('COGOS_KERNEL_PORT', '6931')}"
 TIMEOUT = 1.0  # seconds; localhost-only call, kept short per the hook budget
 
 

@@ -22,13 +22,24 @@ import json
 import os
 import re
 import subprocess
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 _DATA_DIR = Path(os.environ.get("CLAUDE_PLUGIN_DATA") or (Path.home() / ".claude" / "hooks"))
 CACHE = _DATA_DIR / ".kernel-vitals.json"
-PORT = int(os.environ.get("COGOS_KERNEL_PORT", "6931"))
+# COGOS_KERNEL_URL, when set, is the single source of truth for the kernel
+# endpoint — same precedence as seat-identity-heal.py, so the two hooks
+# never point at different kernels. COGOS_KERNEL_PORT remains a
+# localhost-only convenience default for anyone who hasn't moved off
+# 127.0.0.1. PORT is kept for display (the "UNREACHABLE (:PORT)" line).
+KERNEL_URL = os.environ.get("COGOS_KERNEL_URL") or \
+    f"http://127.0.0.1:{os.environ.get('COGOS_KERNEL_PORT', '6931')}"
+try:
+    PORT = urllib.parse.urlparse(KERNEL_URL).port or 6931
+except Exception:
+    PORT = 6931
 REPO = os.environ.get("COGOS_KERNEL_REPO", "myrgic/cogos")
 LABEL = "com.cogos.kernel"
 DISK_FREE_THRESHOLD_GB = 25.0
@@ -45,7 +56,7 @@ def _health() -> dict:
     """GET /health (2s timeout). Returns {reachable, version, status, state}."""
     out = {"reachable": False}
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2) as r:
+        with urllib.request.urlopen(f"{KERNEL_URL}/health", timeout=2) as r:
             d = json.loads(r.read().decode("utf-8", "ignore"))
         out["reachable"] = True
         out["version"] = d.get("version", "")
@@ -325,7 +336,15 @@ def _write_disk_watermark(disk: dict) -> None:
     if not disk:
         return
     try:
-        wdir = _workspace() / ".cog" / "state" / "watermarks"
+        ws = _workspace()
+        if not (ws / ".cog").is_dir():
+            # Never fabricate a cog workspace on a machine that has none —
+            # sibling hooks detect "cog workspace present" via this exact
+            # (workspace / ".cog").is_dir() predicate, so an unconditional
+            # mkdir here would manufacture that condition and cause every
+            # other hook to believe a substrate exists where it doesn't.
+            return
+        wdir = ws / ".cog" / "state" / "watermarks"
         wdir.mkdir(parents=True, exist_ok=True)
         rec = {
             "source": "internal-ssd",

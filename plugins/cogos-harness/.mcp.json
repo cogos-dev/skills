@@ -2,7 +2,7 @@
   "mcpServers": {
     "cogos-kernel": {
       "type": "http",
-      "url": "http://127.0.0.1:6931/mcp"
+      "url": "http://127.0.0.1:${COGOS_KERNEL_PORT:-6931}/mcp"
     }
   }
 }

@@ -207,6 +207,15 @@ def main() -> None:
 
     if transcript:
         parts.append(f"\nFull transcript (authoritative): {transcript}")
+
+    # parts[0:2] are always the header + preamble; if nothing else got
+    # appended (no transcript, no in-flight tasks, no uncommitted work —
+    # e.g. a fresh substrate-less HOME) there is no RECORD to promise, so
+    # say nothing rather than injecting an empty <compaction_handoff> block
+    # that tells the model to distrust the summary in favor of nothing.
+    if len(parts) <= 2:
+        sys.exit(0)
+
     parts.append("</compaction_handoff>")
 
     out = "\n".join(parts)
