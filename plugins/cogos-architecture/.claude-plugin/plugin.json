@@ -1,0 +1,12 @@
+{
+  "name": "cogos-architecture",
+  "description": "CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against the existing substrate corpus",
+  "version": "0.1.0",
+  "author": {
+    "name": "myrgic"
+  },
+  "homepage": "https://github.com/myrgic/plugins",
+  "repository": "https://github.com/myrgic/plugins",
+  "license": "MIT",
+  "keywords": ["architecture", "adr", "rfc", "corpus", "review"]
+}

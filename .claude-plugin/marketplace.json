@@ -1,12 +1,13 @@
 {
-    "name": "cogos-skills",
-    "description": "Skills, agents, and modality integrations for CogOS — the cognitive operating system for AI development",
+    "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+    "name": "plugins",
+    "description": "Skills, harness plugins, and modality integrations for CogOS — the cognitive operating system for AI development",
     "owner": {
         "name": "myrgic",
         "email": "myrgic@users.noreply.github.com"
     },
     "metadata": {
-        "version": "0.2.0",
+        "version": "0.3.0",
         "pluginRoot": "./plugins"
     },
     "plugins": [
@@ -71,6 +72,15 @@
             "version": "0.1.0",
             "category": "development",
             "keywords": ["github", "org-management", "triage", "gh-cli"],
+            "homepage": "https://github.com/myrgic/plugins"
+        },
+        {
+            "name": "cogos-harness",
+            "source": "./plugins/cogos-harness",
+            "description": "Portable Claude Code membrane for a CogOS node: session-lifecycle hooks, kernel-vitals proprioception, a compaction bypass path, and the cogos-kernel MCP server. Degrades to a no-op wherever the kernel or a cog workspace is absent.",
+            "version": "0.1.0",
+            "category": "development",
+            "keywords": ["cogos", "kernel", "mcp", "hooks", "proprioception", "session-continuity"],
             "homepage": "https://github.com/myrgic/plugins"
         }
     ]
