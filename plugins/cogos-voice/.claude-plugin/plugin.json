@@ -6,7 +6,7 @@
     "name": "myrgic"
   },
   "homepage": "https://github.com/myrgic/mod3",
-  "repository": "https://github.com/myrgic/skills",
+  "repository": "https://github.com/myrgic/plugins",
   "license": "MIT",
   "keywords": ["voice", "tts", "stt", "modality", "mod3", "apple-silicon"]
 }
