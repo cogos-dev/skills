@@ -222,14 +222,14 @@ kill -9 $AGENT_PID 2>/dev/null
 ### Basic analysis
 
 ```bash
-cd /Users/me/project && opencode "List all exported functions in src/utils.ts with their type signatures." 2>/dev/null
+cd ~/project && opencode "List all exported functions in src/utils.ts with their type signatures." 2>/dev/null
 ```
 
 ### With specific provider
 
 ```bash
 OPENCODE_MODEL="claude-sonnet-4-20250514" \
-  cd /Users/me/project && opencode "TASK: Review src/parser.py for potential bugs.
+  cd ~/project && opencode "TASK: Review src/parser.py for potential bugs.
 CONTEXT: This module handles untrusted YAML input.
 DONE-WHEN: List of issues with severity ratings and suggested fixes." 2>/dev/null
 ```

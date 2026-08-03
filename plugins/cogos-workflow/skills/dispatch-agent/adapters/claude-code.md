@@ -245,14 +245,14 @@ Agent tool dispatch cannot be cancelled mid-execution.
 
 ```
 Agent tool:
-  prompt: "Read /Users/me/project/src/parser.py and list all public functions
+  prompt: "Read ~/project/src/parser.py and list all public functions
            with their signatures. Output as a markdown table."
 ```
 
 ### Low-tier analysis (CLI)
 
 ```bash
-claude -p --model haiku --cwd /Users/me/project \
+claude -p --model haiku --cwd ~/project \
   "Read src/parser.py and list all public functions with their signatures. Output as a markdown table." \
   2>/dev/null
 ```
@@ -260,7 +260,7 @@ claude -p --model haiku --cwd /Users/me/project \
 ### Medium-tier implementation (CLI)
 
 ```bash
-claude -p --model sonnet --cwd /Users/me/project \
+claude -p --model sonnet --cwd ~/project \
   --dangerously-skip-permissions \
   "TASK: Add a parse_frontmatter() function to src/parser.py
 CONTEXT: The memory system needs to index documents by YAML metadata.
@@ -286,7 +286,7 @@ Agent tool:
 ### Structured output collection (CLI)
 
 ```bash
-RESULT=$(claude -p --model sonnet --output-format json --cwd /Users/me/project \
+RESULT=$(claude -p --model sonnet --output-format json --cwd ~/project \
   "Analyze the test coverage for src/parser.py. Return a JSON object with: covered_functions (array), uncovered_functions (array), coverage_percentage (number)." \
   2>/dev/null)
 

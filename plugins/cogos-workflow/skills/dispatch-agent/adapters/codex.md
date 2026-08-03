@@ -238,7 +238,7 @@ codex exec \
   --sandbox read-only \
   --full-auto \
   --skip-git-repo-check \
-  -C /Users/me/project \
+  -C ~/project \
   "List all exported functions in src/utils.ts. Output as a markdown table with columns: function name, parameters, return type." \
   2>/dev/null
 ```
@@ -251,7 +251,7 @@ codex exec \
   --sandbox workspace-write \
   --full-auto \
   --skip-git-repo-check \
-  -C /Users/me/project \
+  -C ~/project \
   "TASK: Add a parse_frontmatter() function to src/parser.py
 CONTEXT: The memory system needs to index documents by YAML metadata.
 FILES: Edit src/parser.py, add tests to tests/test_parser.py
@@ -270,7 +270,7 @@ codex exec \
   --sandbox workspace-write \
   --full-auto \
   --skip-git-repo-check \
-  -C /Users/me/project \
+  -C ~/project \
   "TASK: Refactor the event system from callback-based to an async event bus with typed channels.
 CONTEXT: Current callback spaghetti causes race conditions in concurrent handlers.
 FILES: src/events/bus.ts (new), src/events/types.ts (new), src/handlers/*.ts (migrate all), src/index.ts (update imports)
