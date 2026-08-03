@@ -147,6 +147,36 @@ metadata:
 Body: when to use, method, steps, examples.
 ```
 
+## Membrane canary
+
+`canary/run_canary.py` is an end-to-end check on the `cogos-harness` plugin
+as it's actually installed, not just as it reads in the repo. It:
+
+- adds this repo as a marketplace tap and installs `cogos-harness@plugins`
+  into a fresh, throwaway HOME (its own keychain, its own plugin state, no
+  contact with a real seat's config or tokens);
+- runs every hook script from the **installed cache path** with fixture
+  input, once with a reachable kernel and once with `COGOS_KERNEL_URL`
+  pointed at a dead port, and checks each one exits 0 with the output shape
+  its own docstring promises (silent for the lifecycle hooks, a structured
+  `<cogos_proprioception>` block for the prompt-submit hook);
+- confirms nothing escaped the sandbox: the real host's files are
+  untouched, and no hook fabricated a fake cog workspace directory;
+- runs `claude plugin validate --strict` against the marketplace manifest;
+- greps the installed package for leaked personal paths or identifiers;
+- and cleans up any session it registered on a live kernel afterward.
+
+Run it locally with:
+
+```bash
+python3 canary/run_canary.py
+```
+
+It prints a digest and writes a full JSON report to `canary/.last_run.json`
+(gitignored), and exits 0 only if every check passed. The kernel-reachable
+half of the run is skipped, not failed, when nothing answers on
+`127.0.0.1:6931` (or `$COGOS_KERNEL_URL`) at start.
+
 ## Contributing
 
 Skills follow the same PR workflow as the rest of the myrgic org — branch on the upstream repo, squash-merge to main. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
