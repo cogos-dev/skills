@@ -1,6 +1,6 @@
 {
   "name": "cogos-workflow",
-  "description": "Phased planning, execution, and critical review skills for complex multi-step development tasks",
+  "description": "Phased planning, execution, critical review, agent-dispatch, and session-continuity skills for complex multi-step development tasks",
   "version": "0.1.0",
   "author": {
     "name": "myrgic"
@@ -8,5 +8,5 @@
   "homepage": "https://github.com/myrgic/plugins",
   "repository": "https://github.com/myrgic/plugins",
   "license": "MIT",
-  "keywords": ["planning", "execution", "review", "multi-agent", "workflow"]
+  "keywords": ["planning", "execution", "review", "multi-agent", "workflow", "dispatch", "session-continuity"]
 }

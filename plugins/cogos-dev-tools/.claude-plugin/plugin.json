@@ -1,10 +1,10 @@
 {
   "name": "cogos-dev-tools",
-  "description": "Development methodology skills — code quality, systems architecture, technical writing, and git forensics",
+  "description": "Development methodology and tooling skills — code quality, systems architecture, technical writing, git forensics, shell and storage management, and cross-model CLI tooling",
   "version": "0.1.0",
   "author": { "name": "myrgic" },
   "homepage": "https://github.com/myrgic/plugins",
   "repository": "https://github.com/myrgic/plugins",
   "license": "MIT",
-  "keywords": ["code-quality", "architecture", "documentation", "git", "development"]
+  "keywords": ["code-quality", "architecture", "documentation", "git", "development", "shell", "storage", "cli-tools"]
 }
