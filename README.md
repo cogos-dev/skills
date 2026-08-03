@@ -1,8 +1,10 @@
-# CogOS Skills
+# plugins
 
-Portable skill definitions for Claude Code, Hermes, and compatible AI agents.
+Portable skill definitions, and Claude Code harness plugins, for CogOS.
 
-Each skill is a `SKILL.md` file — a structured prompt that gives an agent specialized knowledge for a specific domain. The format follows the [Agent Skills](https://agentskills.io) open standard and works across Claude Code, Cursor, VS Code Copilot, Gemini CLI, Hermes, and other compatible agents.
+Most packages here are pure skill collections: each skill is a `SKILL.md` file — a structured prompt that gives an agent specialized knowledge for a specific domain. The format follows the [Agent Skills](https://agentskills.io) open standard and works across Claude Code, Cursor, VS Code Copilot, Gemini CLI, Hermes, and other compatible agents.
+
+One package, **cogos-harness**, is a different kind: it bundles hooks and an MCP server alongside its skills — the Claude Code plugin system's harness-integration surface, not just prompt content. It's Claude-Code-specific (hooks and MCP servers aren't portable to Hermes's skill-tap mechanism the way `SKILL.md` files are) and is documented separately in its own [README](plugins/cogos-harness/README.md).
 
 ## Setup
 
@@ -20,7 +22,12 @@ Or install a specific plugin package:
 claude plugin add myrgic/plugins/cogos-workflow
 claude plugin add myrgic/plugins/cogos-substrate
 claude plugin add myrgic/plugins/cogos-research
+claude plugin add myrgic/plugins/cogos-harness
 ```
+
+`cogos-harness` additionally registers an MCP server (`cogos-kernel`) and a
+set of hooks — see its [own README](plugins/cogos-harness/README.md) for
+what it does and what it needs running to be useful.
 
 Skills are then available in any Claude Code session. Claude invokes them automatically when the conversation context matches, or you can trigger them explicitly (e.g. `/plan-phases`, `/orchestrate`).
 
@@ -67,8 +74,9 @@ Skills installed via tap are available in all Hermes sessions and appear in the 
 | **cogos-dev-tools** | git-forensics, technical-writing, code-quality, systems-architecture, zsh-environment, macos-storage, codex, openclaw-expert | Developer tooling, code quality, shell/storage management, cross-model CLI operation |
 | **cogos-architecture** | corpus-cross-reference | CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against the substrate corpus |
 | **myrgic-org** | pr-triage, issue-triage | Org-management skills for the myrgic GitHub org |
+| **cogos-harness** | btw, consolidate, handoff | Session-lifecycle hooks, kernel-vitals proprioception, and the `cogos-kernel` MCP server, plus the three skills that lean on them. Claude-Code-only — see its own README. |
 
-**Total: 32 skills across 7 plugin packages.**
+**Total: 35 skills across 8 plugin packages** (one of which, cogos-harness, also ships hooks and an MCP server).
 
 ## Cross-Compatibility
 
@@ -111,7 +119,11 @@ plugins/
 ├── cogos-voice/skills/          # Voice modality (Mod³)
 ├── cogos-dev-tools/skills/      # Developer tooling
 ├── cogos-architecture/skills/   # Architecture corpus hygiene
-└── myrgic-org/skills/           # Org management
+├── myrgic-org/skills/           # Org management
+└── cogos-harness/               # Claude Code hooks + MCP server + skills (not skills-only)
+    ├── hooks/
+    ├── skills/
+    └── .mcp.json
 ```
 
 ## Format
