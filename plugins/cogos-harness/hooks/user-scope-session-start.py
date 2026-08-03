@@ -7,23 +7,37 @@ cwd is already inside it (in which case the workspace-scope hooks already
 fired and we skip to avoid double-emit), then delegates to the canonical
 51-presence-started.py handler under the workspace's own .cog/hooks tree.
 
-Presence is kernel-gated, not workspace-gated (#17). When neither of the
-above applies — no cog workspace, or a cog workspace with no
-51-presence-started.py handler — this hook no longer just no-ops: it
-probes the kernel directly (short timeout) and, if it answers, registers
-this seat itself via POST /v1/sessions/register, the exact REST
-counterpart of cog_register_session. Workspace info still ENRICHES a
-registration when available (delegation is preferred and tried first);
-its absence no longer VETOES presence.
+Presence is registry-gated, not workspace-gated (#17). Delegation to the
+workspace handler stays preferred and is still tried first, but it no
+longer decides whether this seat ends up in the kernel's session
+registry — because handler-existence is not a proxy for registration.
+The canonical 51-presence-started.py emits a presence.started event on
+the kernel BUS; it never writes the session registry. Gating the
+fallback on "a handler ran" therefore left the seat unregistered on
+exactly the machines that have a cog workspace — the #17 symptom itself.
+
+So after delegation this hook asks the registry directly (GET
+/v1/sessions/presence, which lists live not-yet-ended sessions) and
+registers via POST /v1/sessions/register — the exact REST counterpart of
+cog_register_session — only when this session is genuinely absent from
+it. Workspace info still ENRICHES a registration when available; its
+absence no longer VETOES presence.
+
+Checking presence rather than handler-existence also protects durable
+seat roles: /v1/sessions/register is a full-row replace, not a field
+merge (see seat-identity-heal.py), so an unconditional fallback would
+overwrite role/extras on every resume or compact SessionStart. Skipping
+an already-registered session makes the fallback additive only.
 
 Safety contract:
   - NEVER raises. All errors are caught and exit 0 is returned.
   - Delegation path (workspace handler) is tried first, unchanged from
     before #17.
-  - The direct-registration fallback fires ONLY when the delegated
-    handler was not invoked (no cog workspace, or workspace found but no
-    handler) AND a short kernel probe succeeds. Both the probe and the
-    registration POST use bounded, short timeouts and fail open silently.
+  - The direct-registration fallback fires only when cwd is outside the
+    cog workspace AND the registry answers cleanly AND this session is
+    not already registered. Both the lookup and the registration POST
+    use bounded, short timeouts and fail open silently — an unreachable
+    registry means "do nothing", never "retry" or "block".
 
 Workspace location (in priority order):
   1. COGOS_WORKSPACE env var
@@ -126,16 +140,42 @@ def _parse_hook_data(stdin_data: bytes) -> dict:
         return {}
 
 
-def _kernel_probe_ok() -> bool:
-    """Short-timeout GET /health. True only on a clean 200. Any failure
-    (kernel down, timeout, DNS, refused connection) returns False -- this
-    is the gate that keeps the fallback from ever blocking on a dead
-    kernel or firing a noisy registration attempt against nothing."""
+def _registry_state(session_id: str) -> str:
+    """Ask the registry itself whether this session is already live.
+
+    Returns one of:
+      "present"     -- the session is in GET /v1/sessions/presence (which
+                       lists live, not-yet-ended sessions), so SOMETHING
+                       already registered it and the fallback must not
+                       touch it.
+      "absent"      -- kernel answered cleanly and this session is not in
+                       the registry: the fallback is the only thing that
+                       will put it there.
+      "unreachable" -- kernel down / timeout / non-200 / unparseable. Fail
+                       open: the caller does nothing.
+
+    This single call replaces the old GET /health probe. It is both the
+    reachability gate AND the ground truth for whether registration is
+    needed, which matters because handler-existence is NOT a proxy for
+    registration: a workspace's 51-presence-started.py emits a
+    presence.started BUS event and never writes the session registry, so
+    gating on "a handler ran" leaves the seat unregistered (#17) and
+    gating on "no handler ran" would let a resume/compact SessionStart
+    re-POST register over a durable role (register is a full-row replace,
+    not a field merge -- see seat-identity-heal.py). Asking the registry
+    is the only predicate that gets both cases right."""
     try:
-        with urllib.request.urlopen(f"{KERNEL_URL}/health", timeout=PROBE_TIMEOUT) as r:
-            return r.status == 200
+        with urllib.request.urlopen(f"{KERNEL_URL}/v1/sessions/presence", timeout=PROBE_TIMEOUT) as r:
+            if r.status != 200:
+                return "unreachable"
+            payload = json.loads(r.read())
+        sessions = payload.get("sessions") or []
+        for s in sessions:
+            if isinstance(s, dict) and s.get("session_id") == session_id:
+                return "present"
+        return "absent"
     except Exception:
-        return False
+        return "unreachable"
 
 
 def _register_direct(session_id: str, workspace: str) -> None:
@@ -165,16 +205,25 @@ def _register_direct(session_id: str, workspace: str) -> None:
 
 
 def _maybe_register_direct(hook_data: dict) -> None:
-    """The #17 fallback: kernel-gated, not workspace-gated. Only reached
-    when the delegated workspace handler was NOT invoked. Fires the
-    registration only when a session_id is available AND the short kernel
-    probe succeeds -- zero registration attempts against an absent or
-    unreachable kernel. Never raises."""
+    """The #17 fallback: registry-gated, not workspace-gated and not
+    handler-gated. Runs after any delegation has already completed
+    (subprocess.run is synchronous, so the workspace handler's effect --
+    if it has one -- is visible by now). Registers only when a session_id
+    is available AND the registry answers cleanly AND this session is not
+    already in it. Consequences of that last clause:
+
+      - a seat whose workspace handler only emitted a bus event still
+        gets registered (the actual #17 symptom), and
+      - a resume/compact SessionStart on an already-registered seat is a
+        no-op, so a durable role is never clobbered by a full-row-replace
+        register.
+
+    Never raises."""
     try:
         session_id = str(hook_data.get("session_id") or "")
         if not session_id:
             return
-        if not _kernel_probe_ok():
+        if _registry_state(session_id) != "absent":
             return
         workspace = str(hook_data.get("cwd") or os.getcwd())
         _register_direct(session_id, workspace)
@@ -188,13 +237,16 @@ def main() -> int:
 
     # workspace_handles_presence: cwd is inside the cog workspace tree, so
     # the WORKSPACE's own session-start hooks (a separate mechanism from
-    # this delegator) already fire for this session. handler_invoked: this
-    # script itself re-exec'd the canonical 51-presence-started.py handler.
-    # Either condition means presence is already someone else's job for
-    # this turn; the #17 fallback below is for the remaining case: neither
-    # happened.
+    # this delegator) already fire for this session -- and the
+    # proprioception hook likewise stands down there, so this hook stays
+    # out of that domain entirely rather than registering a seat nothing
+    # here would heartbeat.
+    #
+    # Delegation to the workspace handler is still preferred and tried
+    # first, but it is NOT a gate on the fallback: whether the fallback
+    # fires is decided by the registry (see _maybe_register_direct), not
+    # by whether a handler file happened to exist.
     workspace_handles_presence = False
-    handler_invoked = False
 
     if cog_ws is not None:
         if _cwd_is_inside_cog(cog_ws):
@@ -204,7 +256,6 @@ def main() -> int:
         else:
             handler = cog_ws / ".cog" / "hooks" / "session-start.d" / "51-presence-started.py"
             if handler.exists():
-                handler_invoked = True
                 # Delegate: re-exec the canonical handler with the same stdin.
                 try:
                     subprocess.run(
@@ -218,7 +269,7 @@ def main() -> int:
                 except Exception as e:
                     sys.stderr.write(f"[user-scope-session-start] handler exec failed: {e}\n")
 
-    if not workspace_handles_presence and not handler_invoked:
+    if not workspace_handles_presence:
         _maybe_register_direct(_parse_hook_data(stdin_data))
 
     return 0

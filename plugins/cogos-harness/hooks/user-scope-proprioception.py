@@ -54,8 +54,9 @@ UserPromptSubmit turn (this hook runs once per turn by construction).
 Safety contract: never raises, always exits 0. Short-circuit on any error.
 Performance target: <200ms (git rev-parse cached by OS; the vitals read is
 a local cache read, not a network call — only the conditional heartbeat
-POST above touches the network, and it is a short-timeout best-effort
-call gated on already-known kernel reachability).
+POST above touches the network, and its timeout is deliberately tight
+(HEARTBEAT_TIMEOUT) so that even a kernel that accepts connections and
+then hangs cannot push this hook meaningfully past its budget).
 """
 
 from __future__ import annotations
@@ -87,7 +88,15 @@ _PLUGIN_ROOT = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or str(Path(__file__).r
 # this hook otherwise stays network-free, per its original contract.
 KERNEL_URL = os.environ.get("COGOS_KERNEL_URL") or \
     f"http://127.0.0.1:{os.environ.get('COGOS_KERNEL_PORT', '6931')}"
-HEARTBEAT_TIMEOUT = 1.0
+# Deliberately far below the other hooks' 1.0-1.5s: this one call sits on
+# the UserPromptSubmit critical path, so its timeout is the per-turn tax
+# whenever the kernel accepts a connection but stops answering (a hang, not
+# a refusal -- a refusal returns in ~0.1s). The vitals cache can keep
+# reporting "reachable" for up to _KERNEL_VITALS_TTL after such a hang, so
+# that tax would otherwise be paid on every turn for a minute and a half.
+# A localhost heartbeat completes in ~20ms; 0.25s is 10x headroom, and a
+# missed heartbeat is free -- the next turn sends another.
+HEARTBEAT_TIMEOUT = 0.25
 
 
 def _find_cog_workspace() -> Path | None:
