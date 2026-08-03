@@ -44,7 +44,7 @@ Then install individual skills:
 ```bash
 hermes skills install plan-phases
 hermes skills install orchestrate
-hermes skills install substrate-archaeology
+hermes skills install cogos-workspace
 ```
 
 Or search across all taps:
@@ -60,15 +60,15 @@ Skills installed via tap are available in all Hermes sessions and appear in the 
 
 | Plugin | Skills | Description |
 |--------|--------|-------------|
-| **cogos-workflow** | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective, local-review, orchestrate, kanban-closed-loop-supervisor | Phased planning, parallel execution, deliberation, closed-loop orchestration |
-| **cogos-substrate** | substrate-archaeology | Finding and trusting prior work in a CogOS/Myrgic substrate |
+| **cogos-workflow** | plan-phases, execute-plan, critical-review, dispatch-agent, council, cold-start, retrospective, local-review, orchestrate, kanban-closed-loop-supervisor, pull-context-dispatch, suggest, session-protocol | Phased planning, parallel execution, deliberation, closed-loop orchestration, pointer-based dispatch, session continuity |
+| **cogos-substrate** | cogos-workspace, substrate-archaeology, structural-discourse | CogOS/Myrgic ecosystem orientation, prior-work archaeology, discourse conventions |
 | **cogos-research** | literature-research, experiment-design, interdisciplinary-research, physics-validation, lab-engineering, inference-cascade | Structured research methodology |
 | **cogos-voice** | voice | Voice modality via Mod³ on Apple Silicon |
-| **cogos-dev-tools** | git-forensics, technical-writing, code-quality, systems-architecture | Developer tooling and code quality |
+| **cogos-dev-tools** | git-forensics, technical-writing, code-quality, systems-architecture, zsh-environment, macos-storage, codex, openclaw-expert | Developer tooling, code quality, shell/storage management, cross-model CLI operation |
 | **cogos-architecture** | corpus-cross-reference | CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against the substrate corpus |
 | **myrgic-org** | pr-triage, issue-triage | Org-management skills for the myrgic GitHub org |
 
-**Total: 25 skills across 7 plugin packages.**
+**Total: 34 skills across 7 plugin packages.**
 
 ## Cross-Compatibility
 
@@ -89,8 +89,9 @@ Hermes supports composing multiple skills into a named bundle that loads them to
 ```yaml
 # ~/.hermes/skill-bundles/cogos-operator.yaml
 name: cogos-operator
-description: Full CogOS operator context — substrate archaeology, architecture hygiene
+description: Full CogOS operator context — workspace orientation, substrate archaeology, architecture hygiene
 skills:
+  - cogos-workspace
   - substrate-archaeology
   - corpus-cross-reference
 instruction: |
@@ -105,7 +106,7 @@ Activate with `/cogos-operator` in any Hermes session.
 ```
 plugins/
 ├── cogos-workflow/skills/       # Planning + execution + review + orchestration
-├── cogos-substrate/skills/      # Substrate archaeology
+├── cogos-substrate/skills/      # Workspace orientation + substrate archaeology
 ├── cogos-research/skills/       # Research methodology
 ├── cogos-voice/skills/          # Voice modality (Mod³)
 ├── cogos-dev-tools/skills/      # Developer tooling
