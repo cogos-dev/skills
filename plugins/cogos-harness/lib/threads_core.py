@@ -44,6 +44,8 @@ would be worse than the bug this registry exists to catch.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -79,6 +81,13 @@ class CorruptStateError(Exception):
 
 class ThreadNotFoundError(Exception):
     pass
+
+
+class LockTimeoutError(Exception):
+    """Raised when locked_state() cannot acquire the state-file lock within
+    its timeout. A concurrent writer is holding it too long (or died while
+    holding it -- flock releases automatically on process exit, so a stuck
+    lock past the timeout means genuine contention, not a stale lock)."""
 
 
 # --------------------------------------------------------------------- time --
@@ -186,6 +195,53 @@ def atomic_write(data: dict, path: Path = STATE_PATH) -> None:
     os.replace(tmp, path)
 
 
+@contextlib.contextmanager
+def locked_state(path: Path = STATE_PATH, timeout: float = 5.0):
+    """Context manager for a read-modify-write on the state file that is
+    safe against concurrent CLI invocations. Holds an exclusive advisory
+    lock (flock on a sibling `.threads.json.lock` file) across the whole
+    load -> mutate -> atomic_write span, so concurrent `threads add`/
+    `close` processes serialize instead of racing a last-writer-wins clobber
+    against `atomic_write`'s os.replace (atomic_write only makes the final
+    rename atomic; it was never a substitute for a lock around the
+    surrounding read-modify-write).
+
+    Yields the loaded state dict for in-place mutation by the caller.
+    Writes it back via atomic_write on clean exit; an exception inside the
+    `with` block skips the write and propagates, leaving the on-disk state
+    untouched (same "never partially commit" contract as atomic_write
+    itself). CorruptStateError from the initial load propagates before any
+    lock-holding write is attempted. Uses fcntl.flock, which is released
+    automatically if the holding process dies, so there is no stale-lock
+    cleanup burden -- a timeout here means a live concurrent writer, not a
+    crashed one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    fh = open(lock_path, "a+")
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise LockTimeoutError(
+                        f"could not acquire lock on {lock_path} within {timeout}s "
+                        f"-- another 'threads' invocation is holding it"
+                    )
+                time.sleep(0.05)
+        data = load_state(path)
+        yield data
+        atomic_write(data, path)
+    finally:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        except Exception:
+            pass
+        fh.close()
+
+
 def find_thread(data: dict, thread_id: str) -> dict:
     for t in data.get("threads", []):
         if t.get("id") == thread_id:
@@ -233,14 +289,26 @@ def run_predicate(cmd: str, timeout: float) -> PredicateResult:
     already uses elsewhere). Never raises: a hung, missing, or erroring
     predicate is reported as unresolved with a note, not an exception —
     callers (in particular the per-turn hook) must be able to treat every
-    predicate outcome uniformly."""
+    predicate outcome uniformly.
+
+    stdin/stdout/stderr are all discarded (DEVNULL), not captured: nothing
+    in this module or its callers reads a predicate's output, only its
+    exit code, so capturing it bought nothing while costing everything --
+    an unbounded-output predicate (a stray `cat`, a paging `gh api`, a
+    `find /`) was buffering gigabytes into this process's memory and
+    blowing well past both this timeout and the caller's wall-clock budget
+    on the decode/alloc/free of a buffer nobody looks at. Discarding output
+    also means a predicate can never leak bytes onto this hook's own JSON
+    stdout channel, and a non-UTF-8-emitting-but-exit-0 predicate can never
+    be misreported as unresolved by a decode error."""
     start = time.monotonic()
     try:
         r = subprocess.run(
             ["/bin/sh", "-c", cmd],
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=timeout,
-            text=True,
         )
         return PredicateResult(resolved=(r.returncode == 0), duration_s=time.monotonic() - start)
     except subprocess.TimeoutExpired:
@@ -263,15 +331,55 @@ class ThreadStatus:
     orphan_reasons: list[str] = field(default_factory=list)
 
 
-def derive_status(thread: dict, timeout: float, now: datetime | None = None) -> ThreadStatus:
+def derive_status(
+    thread: dict,
+    timeout: float,
+    now: datetime | None = None,
+    skip_predicate_if_not_due: bool = False,
+) -> ThreadStatus:
     """The one place resolved/overdue/orphaned/age get computed. Always
     RUNS the predicate — never trusts a cached/prior value — because a
     registry that reports staleness from its own stale cache can't be
-    trusted to report staleness at all."""
+    trusted to report staleness at all. The one exception is
+    `skip_predicate_if_not_due` (see below), which skips the *invocation*
+    without ever trusting a stored value in its place.
+
+    A missing or blank `predicate` is never treated as resolved: a plain
+    `/bin/sh -c ''` exits 0, which would let a thread that lost its
+    predicate field (hand-edit, partial write, future schema drift)
+    self-report "all clear" from nothing -- exactly the failure this
+    registry's derived-not-declared design exists to prevent. It is
+    reported as an explicit unresolved result with a note instead.
+
+    `skip_predicate_if_not_due=True` (used only by the per-turn warn hook,
+    never by `threads check`) skips running the predicate at all when the
+    thread cannot possibly be orphaned this call -- i.e. when it is not yet
+    past `expected_by` (or has no parseable deadline at all). `orphaned`
+    requires both "unresolved" AND "overdue"; when `overdue` is already
+    False on timestamps alone, the predicate's exit code cannot change the
+    answer, so running it is pure cost with no signal for this caller. This
+    is what keeps the per-turn hook from executing arbitrary (possibly
+    network-calling) predicate shell every turn for every open thread that
+    simply isn't due yet -- the common case for the lifetime of any
+    multi-hour/multi-day thread. `resolved` is reported as False (unknown,
+    not "checked and false") in the skipped case; that value is never
+    surfaced by the warn hook, because a not-yet-due thread can never be
+    orphaned regardless of it. `threads check` never sets this flag, so
+    the interactive CLI's `resolved` column always reflects a real
+    predicate run."""
     now = now or now_utc()
     opened = parse_ts(thread.get("opened_at")) or now
     expected = parse_expected_by(thread.get("expected_by"), opened)
-    pred = run_predicate(thread.get("predicate", ""), timeout)
+    predicate = (thread.get("predicate") or "").strip()
+    can_be_overdue = bool(expected) and now > expected
+
+    if skip_predicate_if_not_due and not can_be_overdue:
+        pred = PredicateResult(resolved=False, note="skipped: not due yet")
+    elif not predicate:
+        pred = PredicateResult(resolved=False, note="no predicate set")
+    else:
+        pred = run_predicate(predicate, timeout)
+
     age = now - opened
     overdue = bool(expected and now > expected and not pred.resolved)
     reasons = []
@@ -279,10 +387,13 @@ def derive_status(thread: dict, timeout: float, now: datetime | None = None) -> 
         reasons.append("overdue")
     # Owner-liveness ("the registering session is gone") is intentionally
     # NOT checked here: it would require a network call to the kernel, and
-    # this function is called from the per-turn warn hook, which the
-    # operating gate forbids from making network calls. `threads check`
+    # this function is called from the per-turn warn hook. `threads check`
     # (the interactive CLI, not a per-turn hook) may add a liveness check
-    # later without changing this schema or this function's contract.
+    # later without changing this schema or this function's contract. Note
+    # that the predicate itself is caller-supplied arbitrary shell and MAY
+    # make network calls (e.g. `gh pr view`) -- `skip_predicate_if_not_due`
+    # bounds how often the per-turn hook pays for that, it does not forbid
+    # it outright; a predicate for an already-overdue thread still runs.
     orphaned = bool(reasons) and not pred.resolved
     return ThreadStatus(
         thread=thread,

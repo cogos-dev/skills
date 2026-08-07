@@ -37,14 +37,11 @@ def _load_or_die() -> dict:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    data = _load_or_die()
-    ids = {t["id"] for t in data["threads"]}
-    if args.id:
-        if args.id in ids:
-            _fail(f"id '{args.id}' already exists")
-        thread_id = args.id
-    else:
-        thread_id = core.new_id(args.what, ids)
+    if not args.predicate or not args.predicate.strip():
+        _fail(
+            "--predicate must not be empty -- a blank predicate runs `/bin/sh -c ''`, "
+            "which exits 0 and reports the thread resolved from nothing"
+        )
 
     owner = args.owner or os.environ.get("COGOS_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "unknown"
     opened = core.now_utc()
@@ -54,19 +51,35 @@ def cmd_add(args: argparse.Namespace) -> int:
             f"nor a duration like 2h/45m/1d/30s/1w"
         )
 
-    entry = {
-        "id": thread_id,
-        "what": args.what,
-        "why": args.why,
-        "predicate": args.predicate,
-        "opened_at": core.iso(opened),
-        "expected_by": args.expected_by,
-        "owner": owner,
-        "closed_at": None,
-        "closed_reason": None,
-    }
-    data["threads"].append(entry)
-    core.atomic_write(data)
+    try:
+        with core.locked_state() as data:
+            ids = {t["id"] for t in data["threads"]}
+            if args.id:
+                if args.id in ids:
+                    _fail(f"id '{args.id}' already exists")
+                thread_id = args.id
+            else:
+                thread_id = core.new_id(args.what, ids)
+            entry = {
+                "id": thread_id,
+                "what": args.what,
+                "why": args.why,
+                "predicate": args.predicate,
+                "opened_at": core.iso(opened),
+                "expected_by": args.expected_by,
+                "owner": owner,
+                "closed_at": None,
+                "closed_reason": None,
+            }
+            data["threads"].append(entry)
+    except core.CorruptStateError as e:
+        _fail(
+            f"state file is corrupt, refusing to touch it: {e}\n"
+            f"  Fix or move it by hand, then retry. (Never auto-reset — see "
+            f"lib/threads_core.py docstring.)"
+        )
+    except core.LockTimeoutError as e:
+        _fail(str(e))
     print(f"registered thread '{thread_id}'")
     return 0
 
@@ -124,17 +137,29 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_close(args: argparse.Namespace) -> int:
-    data = _load_or_die()
+    already_closed_at = None
     try:
-        t = core.find_thread(data, args.id)
-    except core.ThreadNotFoundError:
-        _fail(f"no such thread '{args.id}'")
-    if t.get("closed_at"):
-        print(f"'{args.id}' is already closed (at {t['closed_at']})")
+        with core.locked_state() as data:
+            try:
+                t = core.find_thread(data, args.id)
+            except core.ThreadNotFoundError:
+                _fail(f"no such thread '{args.id}'")
+            if t.get("closed_at"):
+                already_closed_at = t["closed_at"]
+            else:
+                t["closed_at"] = core.iso(core.now_utc())
+                t["closed_reason"] = args.reason or ""
+    except core.CorruptStateError as e:
+        _fail(
+            f"state file is corrupt, refusing to touch it: {e}\n"
+            f"  Fix or move it by hand, then retry. (Never auto-reset — see "
+            f"lib/threads_core.py docstring.)"
+        )
+    except core.LockTimeoutError as e:
+        _fail(str(e))
+    if already_closed_at:
+        print(f"'{args.id}' is already closed (at {already_closed_at})")
         return 0
-    t["closed_at"] = core.iso(core.now_utc())
-    t["closed_reason"] = args.reason or ""
-    core.atomic_write(data)
     print(f"closed '{args.id}'")
     return 0
 

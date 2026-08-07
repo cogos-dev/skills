@@ -143,6 +143,48 @@ class TestCliRoundTrip(TempState):
         after = self.state_path.read_text(encoding="utf-8")
         self.assertEqual(before, after, "corrupt file must be left untouched")
 
+    def test_add_rejects_empty_predicate(self):
+        r = run_cli("add", "--what", "x", "--why", "y", "--predicate", "",
+                     "--expected-by", "1h", "--id", "emptypred", env_extra=self.env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("must not be empty", r.stderr)
+        # and it must not have been written to state at all
+        r = run_cli("list", "--all", env_extra=self.env)
+        self.assertNotIn("emptypred", r.stdout)
+
+    def test_add_rejects_whitespace_only_predicate(self):
+        r = run_cli("add", "--what", "x", "--why", "y", "--predicate", "   ",
+                     "--expected-by", "1h", "--id", "wspred", env_extra=self.env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("must not be empty", r.stderr)
+
+    def test_concurrent_add_does_not_lose_registrations(self):
+        # Reproduces the lost-write race: N concurrent `threads add`
+        # invocations against a fresh registry must all survive. Before the
+        # locked_state() fix this reliably dropped entries (last-writer-wins
+        # on the unguarded read-modify-write) while every process still
+        # printed "registered" and exited 0.
+        import concurrent.futures
+        n = 8
+        ids = [f"r{i}" for i in range(n)]
+
+        def add_one(tid):
+            return run_cli("add", "--what", f"concurrent {tid}", "--why", "y",
+                            "--predicate", "true", "--expected-by", "1h",
+                            "--id", tid, env_extra=self.env)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
+            results = list(pool.map(add_one, ids))
+
+        for r in results:
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+        r = run_cli("list", "--all", "--json", env_extra=self.env)
+        self.assertEqual(r.returncode, 0)
+        registered = {t["id"] for t in json.loads(r.stdout)}
+        self.assertEqual(registered, set(ids),
+                          f"lost registrations: expected {sorted(ids)}, got {sorted(registered)}")
+
 
 # ------------------------------------------------------------- library tests --
 
@@ -211,6 +253,28 @@ class TestLibrary(unittest.TestCase):
         self.assertFalse(r.resolved)
         self.assertEqual(r.note, "timeout")
 
+    def test_run_predicate_unbounded_output_is_cheap_and_bounded(self):
+        # A predicate that floods stdout must not blow the timeout or buffer
+        # gigabytes into this process -- output is DEVNULL'd, never
+        # captured, since nothing reads it. `cat /dev/zero` never exits on
+        # its own, so this also exercises the timeout path with a predicate
+        # that produces unbounded bytes until it's killed.
+        start = core.time.monotonic()
+        r = core.run_predicate("cat /dev/zero", timeout=0.5)
+        elapsed = core.time.monotonic() - start
+        self.assertFalse(r.resolved)
+        self.assertEqual(r.note, "timeout")
+        # generous ceiling -- was 9+ seconds when output was captured
+        self.assertLess(elapsed, 3.0, f"took {elapsed:.2f}s; output capture likely regressed")
+
+    def test_run_predicate_non_utf8_output_is_not_misreported(self):
+        # A predicate that exits 0 but emits non-UTF-8 bytes must still be
+        # reported resolved -- output is never decoded, only the exit code
+        # is read.
+        r = core.run_predicate("head -c 64 /dev/urandom >/dev/null; exit 0", timeout=2)
+        self.assertTrue(r.resolved)
+        self.assertEqual(r.note, "")
+
     def test_run_predicate_swallows_exceptions(self):
         # Force an internal error path (not a shell nonzero-exit, an actual
         # exception in subprocess.run) by pointing at a timeout value that
@@ -251,6 +315,74 @@ class TestLibrary(unittest.TestCase):
         self.assertFalse(st.resolved)
         self.assertFalse(st.overdue)
         self.assertFalse(st.orphaned)
+
+    def test_derive_status_empty_predicate_is_never_resolved(self):
+        # A thread that lost its predicate (hand-edit, partial write, future
+        # schema drift) must never self-report "all clear" -- `/bin/sh -c
+        # ''` exits 0, which would make it resolved if run at all. It must
+        # be reported as an explicit unresolved result, and it must be
+        # capable of going orphaned once overdue (unlike a healthy silence).
+        opened = core.now_utc() - core.timedelta(seconds=5)
+        thread = {"id": "x", "predicate": "", "opened_at": core.iso(opened), "expected_by": "1s"}
+        st = core.derive_status(thread, timeout=2)
+        self.assertFalse(st.resolved)
+        self.assertTrue(st.overdue)
+        self.assertTrue(st.orphaned)
+        self.assertIn("predicate", st.predicate_note)
+
+    def test_derive_status_missing_predicate_key_is_never_resolved(self):
+        opened = core.now_utc() - core.timedelta(seconds=5)
+        thread = {"id": "x", "opened_at": core.iso(opened), "expected_by": "1s"}
+        st = core.derive_status(thread, timeout=2)
+        self.assertFalse(st.resolved)
+        self.assertTrue(st.orphaned)
+
+    def test_derive_status_skips_predicate_when_not_due(self):
+        # skip_predicate_if_not_due=True (the per-turn hook's mode): a
+        # thread nowhere near its deadline must never actually invoke the
+        # predicate, since the exit code can't change orphaned/overdue
+        # either way. Use a predicate that would time out if it ran at all,
+        # with a timeout far shorter than that predicate needs, and confirm
+        # it still comes back near-instantly and non-orphaned.
+        opened = core.now_utc()
+        thread = {
+            "id": "x", "predicate": "sleep 30",
+            "opened_at": core.iso(opened), "expected_by": "1h",
+        }
+        start = core.time.monotonic()
+        st = core.derive_status(thread, timeout=5, skip_predicate_if_not_due=True)
+        elapsed = core.time.monotonic() - start
+        self.assertLess(elapsed, 1.0, "predicate should never have been invoked")
+        self.assertFalse(st.overdue)
+        self.assertFalse(st.orphaned)
+        self.assertIn("skipped", st.predicate_note)
+
+    def test_derive_status_still_runs_predicate_when_overdue_even_in_skip_mode(self):
+        # skip_predicate_if_not_due must not suppress the predicate once a
+        # thread actually is past its deadline -- that's the one case its
+        # exit code still matters.
+        opened = core.now_utc() - core.timedelta(seconds=5)
+        thread = {
+            "id": "x", "predicate": "true",
+            "opened_at": core.iso(opened), "expected_by": "1s",
+        }
+        st = core.derive_status(thread, timeout=2, skip_predicate_if_not_due=True)
+        self.assertTrue(st.resolved)
+        self.assertFalse(st.orphaned)  # resolved, so never orphaned even though overdue
+
+    def test_derive_status_skip_mode_does_not_change_check_command_behavior(self):
+        # threads check never passes skip_predicate_if_not_due, so its
+        # resolved/orphaned reporting for a not-yet-due thread must still
+        # reflect an actually-executed predicate (default False == old
+        # behavior, unchanged).
+        opened = core.now_utc()
+        thread = {
+            "id": "x", "predicate": "false",
+            "opened_at": core.iso(opened), "expected_by": "1h",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertEqual(st.predicate_note, "")
+        self.assertFalse(st.resolved)
 
 
 # ------------------------------------------------------------ hook tests --
@@ -306,6 +438,28 @@ class TestWarnHookSilence(TempState):
         r = run_hook(env_extra=env)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(r.stdout, "")
+
+    def test_not_due_thread_never_pays_predicate_latency(self):
+        # The cost-side counterpart to the silence test above: a thread with
+        # a deadline nowhere near due must not just stay silent, it must
+        # come back fast -- its predicate's exit code cannot affect
+        # `orphaned` (which requires overdue), so the hook must skip
+        # running it (skip_predicate_if_not_due) rather than paying the
+        # full per-predicate timeout every single turn for the thread's
+        # entire lifetime. Uses a predicate timeout the hook would have to
+        # wait out if it actually ran the predicate, to make a regression
+        # here fail loudly rather than by a hair.
+        run_cli("add", "--what", "distant deadline", "--why", "y",
+                 "--predicate", "sleep 30", "--expected-by", "1w", "--id", "distant",
+                 env_extra=self.env)
+        env = dict(self.env, COGOS_THREADS_PREDICATE_TIMEOUT="3")
+        import time
+        start = time.monotonic()
+        r = run_hook(env_extra=env)
+        elapsed = time.monotonic() - start
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+        self.assertLess(elapsed, 2.0, f"hook took {elapsed:.2f}s; predicate was likely run unnecessarily")
 
     def test_predicate_error_but_not_overdue_is_silent(self):
         run_cli("add", "--what", "bad cmd not due", "--why", "y",

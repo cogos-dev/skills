@@ -107,7 +107,13 @@ def main() -> None:
             continue
         try:
             per_thread_timeout = min(THREADS_PREDICATE_TIMEOUT, max(0.1, deadline - time.monotonic()))
-            status = core.derive_status(t, timeout=per_thread_timeout)
+            # skip_predicate_if_not_due=True: this hook only ever emits for
+            # orphaned (overdue-and-unresolved) threads, so for any thread
+            # not yet past its expected_by the predicate's exit code cannot
+            # change this hook's output -- skip running it (no subprocess,
+            # no possible network call) rather than paying full predicate
+            # latency/budget every turn for a deadline that hasn't arrived.
+            status = core.derive_status(t, timeout=per_thread_timeout, skip_predicate_if_not_due=True)
         except Exception:
             # A single bad thread entry (or a predicate that errors in some
             # exotic way derive_status didn't already catch) must never
