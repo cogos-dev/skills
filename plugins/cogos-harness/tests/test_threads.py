@@ -475,7 +475,49 @@ class TestLibrary(unittest.TestCase):
 
 
 
-# ------------------------------------------------------------ hook tests --
+    # ---------------------------------------------------------- F8 --
+    # A predicate that backgrounds or forks a grandchild the shell
+    # doesn't wait on used to survive the timeout kill (only the direct
+    # /bin/sh child was signaled) -- one leaked, reparented process per
+    # turn per overdue slow/hanging thread. run_predicate now runs the
+    # predicate in its own process group (start_new_session=True) and
+    # kills the WHOLE group via os.killpg on timeout.
+
+    def test_run_predicate_timeout_kills_backgrounded_descendant(self):
+        marker = f"threads_core_leak_test_{os.getpid()}_{int(core.time.time() * 1000)}"
+        # The outer predicate backgrounds a long-sleeping python3 process
+        # (identifiable via the marker in its argv) that the shell does
+        # NOT wait on, then itself blocks past the timeout -- reproducing
+        # exactly the "grandchild the shell doesn't wait on" leak F8
+        # describes.
+        cmd = f"python3 -c 'import time; time.sleep(30)' {marker} & sleep 30"
+        try:
+            r = core.run_predicate(cmd, timeout=0.3)
+            self.assertFalse(r.resolved)
+            self.assertEqual(r.note, "timeout")
+
+            deadline = core.time.monotonic() + 3.0
+            leaked = True
+            while core.time.monotonic() < deadline:
+                check = subprocess.run(
+                    ["pgrep", "-f", marker], capture_output=True, text=True
+                )
+                if check.returncode != 0:  # pgrep: no matching process
+                    leaked = False
+                    break
+                core.time.sleep(0.2)
+            self.assertFalse(
+                leaked,
+                f"backgrounded descendant matching {marker!r} survived the "
+                f"predicate timeout -- process group was not fully killed",
+            )
+        finally:
+            # Best-effort cleanup regardless of assertion outcome -- never
+            # leave a real sleep-30 process behind because a test failed.
+            subprocess.run(["pkill", "-9", "-f", marker], capture_output=True)
+
+
+
 
 class TestWarnHookSilence(TempState):
     """Every scenario the build's hard gate calls out for the hook,

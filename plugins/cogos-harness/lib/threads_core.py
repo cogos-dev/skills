@@ -49,6 +49,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import time
 import uuid
@@ -318,21 +319,58 @@ def run_predicate(cmd: str, timeout: float) -> PredicateResult:
     on the decode/alloc/free of a buffer nobody looks at. Discarding output
     also means a predicate can never leak bytes onto this hook's own JSON
     stdout channel, and a non-UTF-8-emitting-but-exit-0 predicate can never
-    be misreported as unresolved by a decode error."""
+    be misreported as unresolved by a decode error.
+
+    Runs `/bin/sh` in its own session (`start_new_session=True`, i.e. a
+    fresh process group with `/bin/sh`'s pid as its leader) and, on
+    timeout, kills the WHOLE group via `os.killpg` rather than just the
+    `/bin/sh` pid. A plain `subprocess.run(timeout=...)` only signals the
+    direct child -- a predicate that backgrounds or forks something the
+    shell doesn't `wait` on (a stray `&`, a `curl`/`gh` call left running)
+    survives its parent's death, reparented and still running: one leaked
+    process per turn per overdue slow/hanging thread, forever (F8 in the
+    2026-08-07 independent review). killpg reaches every process in the
+    group in one signal, whether or not the shell itself was still
+    waiting on it."""
     start = time.monotonic()
     try:
-        r = subprocess.run(
+        proc = subprocess.Popen(
             ["/bin/sh", "-c", cmd],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=timeout,
+            start_new_session=True,
         )
-        return PredicateResult(resolved=(r.returncode == 0), duration_s=time.monotonic() - start)
-    except subprocess.TimeoutExpired:
-        return PredicateResult(resolved=False, note="timeout", duration_s=time.monotonic() - start)
     except Exception as e:
         return PredicateResult(resolved=False, note=f"error: {e}", duration_s=time.monotonic() - start)
+
+    try:
+        returncode = proc.wait(timeout=timeout)
+        return PredicateResult(resolved=(returncode == 0), duration_s=time.monotonic() - start)
+    except subprocess.TimeoutExpired:
+        _killpg(proc.pid)
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            pass  # best-effort reap; a still-unreaped zombie here is not
+            # this function's failure mode to fix -- killpg already
+            # stopped it from doing any further work.
+        return PredicateResult(resolved=False, note="timeout", duration_s=time.monotonic() - start)
+    except Exception as e:
+        _killpg(proc.pid)
+        return PredicateResult(resolved=False, note=f"error: {e}", duration_s=time.monotonic() - start)
+
+
+def _killpg(pid: int) -> None:
+    """Best-effort SIGKILL to the process group led by `pid`. Swallows
+    everything -- a group that's already gone (the shell and everything
+    it spawned already exited between the timeout firing and this call)
+    is success, not an error, and this must never raise past its caller
+    (run_predicate's own timeout/error handling)."""
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except Exception:
+        pass
 
 
 # -------------------------------------------------------------------- derive --
