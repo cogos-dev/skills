@@ -828,6 +828,20 @@ class TestGatePrScaffoldDisabledByDefault(TempState):
     """The enforcement-tier hook itself, per the build's requirement that
     it's present but inert unless explicitly armed."""
 
+    def setUp(self):
+        super().setUp()
+        # F5: every gate test must supply its own COGOS_THREADS_CONFIG, a
+        # nonexistent-by-default fixture path -- without this, any test
+        # that doesn't explicitly arm the gate (i.e. doesn't build its own
+        # cfg_path, as the "armed" tests below do) leaves the env var
+        # unset, which resolves to the OPERATOR'S REAL
+        # ~/.cog/status/threads-config.json. If that file happens to have
+        # enforce_pr_create_thread=true set on the machine actually
+        # running these tests, "disabled by default" assertions below
+        # would fail against live machine state instead of the fixture.
+        self.config_path = Path(self._tmp.name) / "threads-config.json"
+        self.env["COGOS_THREADS_CONFIG"] = str(self.config_path)
+
     def _run_gate(self, command, env_extra=None):
         env = dict(os.environ)
         if env_extra:
