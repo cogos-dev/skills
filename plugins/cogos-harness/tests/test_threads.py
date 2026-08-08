@@ -185,7 +185,6 @@ class TestCliRoundTrip(TempState):
         self.assertEqual(registered, set(ids),
                           f"lost registrations: expected {sorted(ids)}, got {sorted(registered)}")
 
-
     def test_check_unparseable_opened_at_renders_unknown_age_and_expected_by(self):
         # NEW-2 (2026-08-07 independent review, delta pass): same
         # self-contradicting-rendering hazard as the warn hook, checked
@@ -208,7 +207,6 @@ class TestCliRoundTrip(TempState):
         self.assertIn("age=?", r.stdout)
         self.assertIn("expected_by=?", r.stdout)
         self.assertNotRegex(r.stdout, r"expected_by=\d{4}-\d{2}-\d{2}")
-
 
 
 # ------------------------------------------------------------- library tests --
@@ -470,8 +468,6 @@ class TestLibrary(unittest.TestCase):
         self.assertFalse(st.overdue)
         self.assertFalse(st.orphaned)
 
-
-
     # --------------------------------------------------------- NEW-2 --
     # Delta-pass residual (2026-08-07 independent review, second pass):
     # the F6 override above correctly DETECTS the orphan, but rendering
@@ -514,8 +510,6 @@ class TestLibrary(unittest.TestCase):
         self.assertFalse(st.age_unknown)
         self.assertFalse(st.expected_by_unknown)
         self.assertNotIn("unparseable_opened_at", st.orphan_reasons)
-
-
 
     # ---------------------------------------------------------- F7 --
     # SCHEMA_VERSION was written on every save but never read back on
@@ -757,7 +751,6 @@ class TestWarnHookSpeaksWhenWarranted(TempState):
         self.assertIn("stuck", block)
         self.assertNotIn("fine", block)
 
-
     def test_unparseable_opened_at_orphan_renders_unknown_age_and_expected_by(self):
         # NEW-2 (2026-08-07 independent review, delta pass): this thread
         # can only be constructed by hand-writing state -- `threads add`
@@ -787,7 +780,6 @@ class TestWarnHookSpeaksWhenWarranted(TempState):
         # The old (buggy) rendering would have shown a real ISO timestamp
         # for expected_by -- make sure none leaked through.
         self.assertNotRegex(block, r"expected_by \d{4}-\d{2}-\d{2}")
-
 
 
 def _load_warn_hook_module():
@@ -1150,6 +1142,94 @@ class TestGatePrCommandTokenizer(unittest.TestCase):
         # gate's fail-open contract depends on parsing never taking down
         # the whole check.
         self.assertFalse(self.gate._looks_like_gh_pr_create('echo "unterminated'))
+
+    # ---------------------------------------------------------- NEW-1 --
+    # Delta-pass residuals (2026-08-07 independent review, second pass):
+    # a leading env-assignment token or a fused subshell paren shifted
+    # argv just enough to defeat the argv[:3] == ["gh","pr","create"]
+    # compare -- for the env-assignment case in particular, this was a
+    # COVERAGE REGRESSION relative to the OLD bare-substring match, which
+    # caught `GH_TOKEN=x gh pr create` for free (it didn't care about
+    # argv position at all). None of these are evasion; they're ordinary
+    # usage.
+
+    def test_leading_env_assignment_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("GH_TOKEN=x gh pr create --title x"))
+
+    def test_multiple_leading_env_assignments_are_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("A=1 B=2 gh pr create --title x"))
+
+    def test_single_ampersand_is_a_separator(self):
+        # A lone `&` (backgrounding) must not fuse this segment to the
+        # next one -- `gh pr create & sleep 1` is a real invocation
+        # followed by an unrelated backgrounded command, not one long
+        # non-matching argv.
+        self.assertTrue(self.gate._looks_like_gh_pr_create("gh pr create --title x & sleep 1"))
+        self.assertTrue(self.gate._looks_like_gh_pr_create("sleep 1 & gh pr create --title x"))
+
+    def test_subshell_paren_fused_to_first_token_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("(gh pr create --title x)"))
+
+    def test_subshell_paren_with_space_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("( gh pr create --title x )"))
+
+    def test_subshell_paren_plus_env_assignment_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("(GH_TOKEN=x gh pr create --title x)"))
+
+    def test_env_assignment_style_argument_value_is_not_stripped(self):
+        # _strip_leading_noise only strips LEADING NAME=value tokens --
+        # gh's own --field=value-style arguments (which never precede the
+        # command name) must not be affected, and a false env-assignment
+        # match must not accidentally consume part of a real invocation.
+        self.assertTrue(self.gate._looks_like_gh_pr_create("gh pr create --title=x"))
+
+    def test_backtick_substitution_not_treated_as_a_boundary(self):
+        # Documented limit: backticks aren't special-cased the way $( is.
+        # Asserted explicitly (like the variable-substitution case above)
+        # so a future change doesn't silently start or silently keep
+        # failing to catch it without anyone noticing either way.
+        self.assertFalse(self.gate._looks_like_gh_pr_create("echo `gh pr create --title x`"))
+
+
+class TestGatePrArmedDeniesNewFalseNegatives(TempState):
+    """Subprocess-level companions to the NEW-1 unit tests above: the
+    full gate (armed, zero open threads) must actually DENY these real
+    invocations, not just have the tokenizer function return True in
+    isolation."""
+
+    def setUp(self):
+        super().setUp()
+        cfg_dir = Path(tempfile.mkdtemp())
+        cfg_path = cfg_dir / "threads-config.json"
+        cfg_path.write_text(json.dumps({"enforce_pr_create_thread": True}), encoding="utf-8")
+        self.env["COGOS_THREADS_CONFIG"] = str(cfg_path)
+
+    def _run_gate(self, command):
+        gate = PLUGIN_ROOT / "hooks" / "threads-gate-pr.py"
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+        env = dict(os.environ)
+        env.update(self.env)
+        return subprocess.run(
+            [sys.executable, str(gate)], capture_output=True, text=True,
+            timeout=10, env=env, input=json.dumps(payload),
+        )
+
+    def _assert_denied(self, command):
+        r = self._run_gate(command)
+        resp = json.loads(r.stdout)
+        self.assertEqual(
+            resp.get("hookSpecificOutput", {}).get("permissionDecision"), "deny",
+            f"expected deny for {command!r}, got {r.stdout}",
+        )
+
+    def test_leading_env_assignment_denied_when_armed(self):
+        self._assert_denied("GH_TOKEN=x gh pr create --title x --body y")
+
+    def test_ampersand_backgrounded_invocation_denied_when_armed(self):
+        self._assert_denied("gh pr create --title x --body y & sleep 1")
+
+    def test_subshell_paren_invocation_denied_when_armed(self):
+        self._assert_denied("(gh pr create --title x --body y)")
 
 
 if __name__ == "__main__":

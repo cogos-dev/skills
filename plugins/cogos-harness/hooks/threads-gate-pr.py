@@ -22,11 +22,16 @@ Contract when armed:
     pr create` INVOCATION -- some top-level segment's argv starts with
     `gh`, `pr`, `create`, in that order -- not merely a command string
     that contains those three words somewhere (e.g. as a quoted argument
-    to `git commit -m` or `grep`). See `_looks_like_gh_pr_create()` and
+    to `git commit -m` or `grep`). Ordinary usage that shifts argv --
+    leading `NAME=value` env assignments, a `(...)` subshell -- is
+    stripped before the argv[:3] compare, not treated as evasion. See
+    `_looks_like_gh_pr_create()`, `_strip_leading_noise()`, and
     `_split_commands()` below for exactly what is and isn't caught (F2 in
     the 2026-08-07 independent review: a bare substring match flagged
     `git commit -m "docs: ... gh pr create ..."` and `grep -rn "gh pr
-    create" .` as if they were the real thing).
+    create" .` as if they were the real thing; NEW-1 in that review's
+    delta pass: the tokenizing replacement initially regressed the env-
+    assignment case, which the OLD substring match happened to catch).
   - DENIES (permissionDecision "deny") when zero open threads exist in the
     registry at call time.
   - FAILS OPEN on any internal error, missing state file, unreadable
@@ -38,34 +43,61 @@ Contract when armed:
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
+# Leading `NAME=value` env-assignment token(s), e.g. the `GH_TOKEN=x` in
+# `GH_TOKEN=x gh pr create ...` -- ordinary usage (setting an env var for
+# one invocation), not evasion. The pre-tokenizer substring match this
+# gate replaced (F2) caught this case for free; matching argv[0] exactly
+# against "gh" would have been a coverage regression for it (NEW-1 in the
+# 2026-08-07 independent review's delta pass).
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
 
 def _split_commands(command: str) -> list[str]:
     """Best-effort split of a shell command line into simple-command
     segments, breaking on TOP-LEVEL (outside single/double quotes)
-    occurrences of `;`, `&&`, `||`, `|`, `$(`, and newline. This is NOT a
-    real shell parser -- it exists only to tell "gh pr create" appearing
-    as an actual invoked command apart from it appearing merely as a
-    quoted string argument to some other command. Splitting on `$(` means
-    the text of a command substitution is checked like any other segment
-    (so `FOO=$(gh pr create ...)` is still caught), even though nesting
-    and closing-paren handling inside the substitution aren't modeled
-    precisely -- good enough for a warn-tier gate that only needs to spot
-    the invocation, not fully parse arbitrary shell.
+    occurrences of `;`, `&`, `&&`, `||`, `|`, `$(`, and newline. This is
+    NOT a real shell parser -- it exists only to tell "gh pr create"
+    appearing as an actual invoked command apart from it appearing merely
+    as a quoted string argument to some other command. Splitting on `$(`
+    means the text of a command substitution is checked like any other
+    segment (so `FOO=$(gh pr create ...)` is still caught), even though
+    nesting and closing-paren handling inside the substitution aren't
+    modeled precisely -- good enough for a warn-tier gate that only needs
+    to spot the invocation, not fully parse arbitrary shell. A single `&`
+    (backgrounding, not `&&`) is a separator too -- `gh pr create & sleep
+    1` must not have `create`'s segment silently fused to the next one.
 
-    Known, accepted limit, documented rather than silently pretended
-    away: variable-substitution evasion (`C=create; gh pr $C`, `$X pr
-    create`) is NOT caught. Catching that would require actually
-    expanding shell variables, i.e. running a shell -- exactly the kind
-    of side effect a PreToolUse gate must never have. This gate only ever
-    denies a LITERAL `gh pr create` invocation; anyone motivated enough to
-    obfuscate past a warn-tier gate on their own machine can already do
-    so, same as any other client-side check."""
+    Known, accepted limits, documented rather than silently pretended
+    away (all NEW-1/2026-08-07 delta-pass residuals except the first,
+    which was the original F2 fix's own documented scope):
+      - Variable-substitution evasion (`C=create; gh pr $C`, `$X pr
+        create`) is NOT caught. Catching that would require actually
+        expanding shell variables, i.e. running a shell -- exactly the
+        kind of side effect a PreToolUse gate must never have.
+      - Backtick command substitution (`` `gh pr create` `` as opposed to
+        `$(gh pr create)`) is NOT treated as a segment boundary the way
+        `$(` is -- backticks are legacy syntax this tokenizer doesn't
+        special-case.
+      - A backslash-escaped quote INSIDE a single-quoted string (e.g.
+        `'gh pr create \'x\''`, which POSIX shells don't actually treat
+        as an escape at all -- single quotes have no escape character)
+        is not modeled; this tokenizer's quote tracking assumes a
+        backslash only escapes a matching quote character, which is
+        correct for double quotes but not single quotes.
+      - Subshell parens: only a `(` FUSED TO THE FRONT of the first token
+        of a segment (`(gh pr create ...)`) is stripped, by
+        `_strip_leading_noise()` below, not general paren-grouping
+        anywhere in a command.
+    This gate only ever denies a LITERAL `gh pr create` invocation;
+    anyone motivated enough to obfuscate past a warn-tier gate on their
+    own machine can already do so, same as any other client-side check."""
     segments: list[str] = []
     buf: list[str] = []
     quote: str | None = None
@@ -94,7 +126,7 @@ def _split_commands(command: str) -> list[str]:
             buf = []
             i += 2
             continue
-        if ch in (";", "|", "\n"):
+        if ch in (";", "|", "\n", "&"):
             segments.append("".join(buf))
             buf = []
             i += 1
@@ -105,13 +137,35 @@ def _split_commands(command: str) -> list[str]:
     return segments
 
 
+def _strip_leading_noise(argv: list[str]) -> list[str]:
+    """Strips, from the front of a tokenized segment's argv, a subshell's
+    `(` when fused to the first token (`(gh pr create ...)` -> `gh pr
+    create ...`) and any leading `NAME=value` environment-assignment
+    token(s) (`GH_TOKEN=x gh pr create` -> `gh pr create`), so the
+    `argv[:3] == ["gh", "pr", "create"]` check isn't defeated by either --
+    both are ordinary usage, not evasion. NEW-1 in the 2026-08-07
+    independent review's delta pass: the env-assignment case in
+    particular is a coverage regression relative to the OLD substring
+    match this gate replaced, which caught it (accidentally) for free."""
+    argv = list(argv)
+    if argv and argv[0].startswith("("):
+        argv[0] = argv[0].lstrip("(")
+        if argv[0] == "":
+            argv = argv[1:]
+    while argv and _ENV_ASSIGN_RE.match(argv[0]):
+        argv = argv[1:]
+    return argv
+
+
 def _looks_like_gh_pr_create(command: str) -> bool:
     """True iff some top-level segment of `command` is an actual
     invocation whose argv starts with `gh pr create` (flags interleaved
     anywhere after that are irrelevant -- this only needs to detect that
     the invocation exists at all; the registry check downstream is what
-    decides allow/deny). See `_split_commands()` for the documented
-    limits, most notably: no variable-substitution evasion detection."""
+    decides allow/deny). Leading subshell `(` and env-assignment tokens
+    are stripped first (see `_strip_leading_noise()`). See
+    `_split_commands()` for the documented limits, most notably: no
+    variable-substitution evasion detection."""
     for segment in _split_commands(command):
         try:
             argv = shlex.split(segment, posix=True)
@@ -121,6 +175,7 @@ def _looks_like_gh_pr_create(command: str) -> bool:
             # exception that does escape this function still lands in
             # main()'s fail-open catch-all.
             continue
+        argv = _strip_leading_noise(argv)
         if argv[:3] == ["gh", "pr", "create"]:
             return True
     return False
