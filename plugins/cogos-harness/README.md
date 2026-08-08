@@ -164,16 +164,28 @@ plugin should absorb without a separate decision:
 ## Testing
 
 `tests/test_threads.py` — stdlib `unittest`, no third-party dependencies:
-`python3 tests/test_threads.py -v`. Covers the CLI round trip, the shared
-library's state/predicate/derive primitives, the disabled-by-default
-enforcement gate, and — the load-bearing set — the warn hook's silence
-contract checked byte-exact against real stdout for every failure mode the
-build's hard gate calls out: missing state file, corrupt state file, empty
-state file, a predicate that times out, a predicate that errors, an
-unresolved-but-not-yet-overdue thread, and a closed (formerly orphaned)
-thread. Every fixture runs against a per-test tempdir via
-`COGOS_THREADS_STATE`; nothing here touches a real
-`~/.cog/status/threads.json`.
+`python3 tests/test_threads.py -v` (82 tests). Covers the CLI round trip,
+the shared library's state/predicate/derive primitives, the
+disabled-by-default enforcement gate, and — the load-bearing set — the warn
+hook's silence contract checked byte-exact against real stdout for every
+failure mode the build's hard gate calls out: missing state file, corrupt
+state file, empty state file, a predicate that times out, a predicate that
+errors, an unresolved-but-not-yet-overdue thread, and a closed (formerly
+orphaned) thread. Every fixture runs against a per-test tempdir via
+`COGOS_THREADS_STATE` (and, for the gate, `COGOS_THREADS_CONFIG`); nothing
+here touches a real `~/.cog/status/threads.json` or
+`~/.cog/status/threads-config.json`.
+
+Also covers the fixes from a 2026-08-07 independent review: the
+budget-exhaustion notice and scan-order rotation (deterministic,
+clock-driven reproduction of the exact starvation scenario — budget
+consumed by non-orphaned predicates ahead of a genuine orphan in registry
+order), the `gh pr create` gate's segment-tokenizing command parser (allows
+the phrase inside a quoted `git commit -m`/`grep` argument, still denies a
+real invocation, documents variable-substitution evasion as out of scope),
+an unparseable `opened_at` paired with a duration `expected_by`, enforcement
+of `SCHEMA_VERSION` on load, and killing a predicate's whole process group
+(not just its immediate `/bin/sh` child) on timeout.
 
 ## Dogfood plan
 

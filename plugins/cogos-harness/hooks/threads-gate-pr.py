@@ -18,7 +18,15 @@ per the build's hard gate, only the operator does that, by hand, later:
     { "enforce_pr_create_thread": true }
 
 Contract when armed:
-  - Only inspects Bash tool calls whose command matches `gh pr create`.
+  - Only inspects Bash tool calls whose command tokenizes to an actual `gh
+    pr create` INVOCATION -- some top-level segment's argv starts with
+    `gh`, `pr`, `create`, in that order -- not merely a command string
+    that contains those three words somewhere (e.g. as a quoted argument
+    to `git commit -m` or `grep`). See `_looks_like_gh_pr_create()` and
+    `_split_commands()` below for exactly what is and isn't caught (F2 in
+    the 2026-08-07 independent review: a bare substring match flagged
+    `git commit -m "docs: ... gh pr create ..."` and `grep -rn "gh pr
+    create" .` as if they were the real thing).
   - DENIES (permissionDecision "deny") when zero open threads exist in the
     registry at call time.
   - FAILS OPEN on any internal error, missing state file, unreadable
@@ -30,13 +38,92 @@ Contract when armed:
 from __future__ import annotations
 
 import json
-import re
+import shlex
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-_PR_CREATE_RE = re.compile(r"\bgh\s+pr\s+create\b", re.IGNORECASE)
+
+def _split_commands(command: str) -> list[str]:
+    """Best-effort split of a shell command line into simple-command
+    segments, breaking on TOP-LEVEL (outside single/double quotes)
+    occurrences of `;`, `&&`, `||`, `|`, `$(`, and newline. This is NOT a
+    real shell parser -- it exists only to tell "gh pr create" appearing
+    as an actual invoked command apart from it appearing merely as a
+    quoted string argument to some other command. Splitting on `$(` means
+    the text of a command substitution is checked like any other segment
+    (so `FOO=$(gh pr create ...)` is still caught), even though nesting
+    and closing-paren handling inside the substitution aren't modeled
+    precisely -- good enough for a warn-tier gate that only needs to spot
+    the invocation, not fully parse arbitrary shell.
+
+    Known, accepted limit, documented rather than silently pretended
+    away: variable-substitution evasion (`C=create; gh pr $C`, `$X pr
+    create`) is NOT caught. Catching that would require actually
+    expanding shell variables, i.e. running a shell -- exactly the kind
+    of side effect a PreToolUse gate must never have. This gate only ever
+    denies a LITERAL `gh pr create` invocation; anyone motivated enough to
+    obfuscate past a warn-tier gate on their own machine can already do
+    so, same as any other client-side check."""
+    segments: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == quote and command[i - 1] != "\\":
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if command.startswith("$(", i):
+            segments.append("".join(buf))
+            buf = []
+            i += 2
+            continue
+        if command.startswith("&&", i) or command.startswith("||", i):
+            segments.append("".join(buf))
+            buf = []
+            i += 2
+            continue
+        if ch in (";", "|", "\n"):
+            segments.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    segments.append("".join(buf))
+    return segments
+
+
+def _looks_like_gh_pr_create(command: str) -> bool:
+    """True iff some top-level segment of `command` is an actual
+    invocation whose argv starts with `gh pr create` (flags interleaved
+    anywhere after that are irrelevant -- this only needs to detect that
+    the invocation exists at all; the registry check downstream is what
+    decides allow/deny). See `_split_commands()` for the documented
+    limits, most notably: no variable-substitution evasion detection."""
+    for segment in _split_commands(command):
+        try:
+            argv = shlex.split(segment, posix=True)
+        except ValueError:
+            # Unbalanced quotes etc. in this segment -- skip it rather
+            # than raising; other segments are still checked, and any
+            # exception that does escape this function still lands in
+            # main()'s fail-open catch-all.
+            continue
+        if argv[:3] == ["gh", "pr", "create"]:
+            return True
+    return False
 
 
 def _allow() -> None:
@@ -65,7 +152,7 @@ def main() -> None:
             _allow()
             return
         command = (inp.get("tool_input") or {}).get("command", "") or ""
-        if not _PR_CREATE_RE.search(command):
+        if not _looks_like_gh_pr_create(command):
             _allow()
             return
 

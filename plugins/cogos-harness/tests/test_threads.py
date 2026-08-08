@@ -891,5 +891,130 @@ class TestGatePrScaffoldDisabledByDefault(TempState):
         self.assertEqual(json.loads(r.stdout), {})
 
 
+    # ---------------------------------------------------------- F2 --
+    # A bare substring match (`"gh pr create" in command`) flagged any
+    # command that merely CONTAINS those three words, including as a
+    # quoted argument to an unrelated command -- editing this feature's
+    # own docs tripped the gate. These tests arm the gate with zero open
+    # threads (the state under which a real `gh pr create` invocation
+    # would be denied) so a false positive is observable as an incorrect
+    # deny, and a false negative as an incorrect allow.
+
+    def _armed_env(self):
+        cfg_dir = Path(tempfile.mkdtemp())
+        cfg_path = cfg_dir / "threads-config.json"
+        cfg_path.write_text(json.dumps({"enforce_pr_create_thread": True}), encoding="utf-8")
+        return dict(self.env, COGOS_THREADS_CONFIG=str(cfg_path))
+
+    def test_gh_pr_create_inside_git_commit_message_is_not_denied(self):
+        # Armed, zero open threads: a real `gh pr create` invocation would
+        # be denied here. This isn't one -- the literal string only
+        # appears inside a quoted -m argument to `git commit`.
+        env = self._armed_env()
+        r = self._run_gate(
+            'git commit -m "docs: describe gh pr create gating"', env_extra=env
+        )
+        self.assertEqual(json.loads(r.stdout), {}, r.stdout)
+
+    def test_gh_pr_create_inside_grep_pattern_is_not_denied(self):
+        env = self._armed_env()
+        r = self._run_gate('grep -rn "gh pr create" ./docs', env_extra=env)
+        self.assertEqual(json.loads(r.stdout), {}, r.stdout)
+
+    def test_plain_gh_pr_create_is_still_denied_when_armed(self):
+        # The regression check for the fix above: an actual invocation
+        # must still be caught, tokenized or not.
+        env = self._armed_env()
+        r = self._run_gate("gh pr create --title x --body y", env_extra=env)
+        resp = json.loads(r.stdout)
+        self.assertEqual(resp["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_gh_pr_create_after_shell_operator_is_still_denied(self):
+        # A real invocation chained after `;`/`&&` must still be caught --
+        # the tokenizer must not treat "not the very first segment" as
+        # "not a real invocation".
+        env = self._armed_env()
+        r = self._run_gate("echo hi && gh pr create --title x", env_extra=env)
+        resp = json.loads(r.stdout)
+        self.assertEqual(resp["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_variable_substitution_evasion_is_out_of_scope_and_allowed(self):
+        # Documented limit, not a bug: this gate never runs a shell, so it
+        # cannot know `$C` expands to "create". A warn-tier client-side
+        # gate cannot close this without the side effects it exists to
+        # avoid; see _split_commands()'s docstring.
+        env = self._armed_env()
+        r = self._run_gate("C=create; gh pr $C --title x", env_extra=env)
+        self.assertEqual(json.loads(r.stdout), {}, r.stdout)
+
+
+class TestGatePrCommandTokenizer(unittest.TestCase):
+    """Unit-level tests directly against threads-gate-pr.py's tokenizer
+    (_split_commands / _looks_like_gh_pr_create), independent of the
+    enforcement config -- these exist so the parsing logic itself is
+    pinned precisely, not just observed indirectly through allow/deny."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        gate_path = PLUGIN_ROOT / "hooks" / "threads-gate-pr.py"
+        spec = importlib.util.spec_from_file_location("cogos_threads_gate_pr", gate_path)
+        cls.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.gate)
+
+    def test_quoted_in_git_commit_is_not_an_invocation(self):
+        self.assertFalse(
+            self.gate._looks_like_gh_pr_create(
+                'git commit -m "docs: describe gh pr create gating"'
+            )
+        )
+
+    def test_quoted_in_grep_is_not_an_invocation(self):
+        self.assertFalse(
+            self.gate._looks_like_gh_pr_create('grep -rn "gh pr create" ./docs')
+        )
+
+    def test_plain_invocation_is_detected(self):
+        self.assertTrue(
+            self.gate._looks_like_gh_pr_create("gh pr create --title x --body y")
+        )
+
+    def test_invocation_after_semicolon_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("echo hi; gh pr create --title x"))
+
+    def test_invocation_after_double_ampersand_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("ls -la && gh pr create --title x"))
+
+    def test_invocation_after_pipe_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create('echo body | gh pr create --title x --body-file -'))
+
+    def test_command_constructed_via_xargs_template_not_detected(self):
+        # A real limit, not a target: xargs builds "gh pr create {}" as a
+        # TEMPLATE it later substitutes into an argv -- the literal
+        # segment's argv here starts with "xargs", not "gh". This is the
+        # same class of limitation as variable-substitution evasion
+        # (documented in _split_commands' docstring), not something this
+        # tokenizer claims to catch.
+        self.assertFalse(self.gate._looks_like_gh_pr_create("echo hi | xargs -I{} gh pr create {}"))
+
+    def test_invocation_inside_command_substitution_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("FOO=$(gh pr create --title x)"))
+
+    def test_invocation_quoted_as_a_single_string_is_not_an_invocation(self):
+        self.assertFalse(self.gate._looks_like_gh_pr_create("echo 'gh pr create' | cat"))
+
+    def test_variable_substitution_evasion_not_detected(self):
+        # Documented limitation, asserted explicitly so a future change
+        # doesn't silently start (or silently keep failing to) catch it
+        # without anyone noticing either way.
+        self.assertFalse(self.gate._looks_like_gh_pr_create("C=create; gh pr $C --title x"))
+
+    def test_unbalanced_quotes_do_not_raise(self):
+        # A segment shlex can't parse must be skipped, not raised -- this
+        # gate's fail-open contract depends on parsing never taking down
+        # the whole check.
+        self.assertFalse(self.gate._looks_like_gh_pr_create('echo "unterminated'))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
