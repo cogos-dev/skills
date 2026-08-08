@@ -76,11 +76,22 @@ def _emit(evt: str, block: str) -> None:
 def _line_for(core, status) -> str:
     t = status.thread
     reasons = ",".join(status.orphan_reasons) or "?"
-    exp = core.iso(status.expected_by_ts) if status.expected_by_ts else "?"
+    # NEW-2 (2026-08-07 independent review, delta pass): when opened_at
+    # didn't parse, `age`/`expected_by_ts` are synthesized stand-ins, not
+    # real measurements -- rendering them verbatim next to "overdue"
+    # reads as self-contradicting evidence ("age 0s, expected_by
+    # tomorrow" beside "orphaned, right now"). Render "?" instead
+    # whenever derive_status flagged the value as unknown; see
+    # ThreadStatus's docstring in lib/threads_core.py.
+    age_str = "?" if status.age_unknown else core.human_age(status.age)
+    if status.expected_by_unknown:
+        exp = "?"
+    else:
+        exp = core.iso(status.expected_by_ts) if status.expected_by_ts else "?"
     note = f" [{status.predicate_note}]" if status.predicate_note else ""
     what = (t.get("what") or "")[:70]
     return (
-        f'⚠ {t.get("id")} ({reasons}): "{what}" — age {core.human_age(status.age)}, '
+        f'⚠ {t.get("id")} ({reasons}): "{what}" — age {age_str}, '
         f'expected_by {exp}, owner={t.get("owner","?")}{note}'
     )
 

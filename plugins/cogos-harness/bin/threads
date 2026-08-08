@@ -123,9 +123,18 @@ def cmd_check(args: argparse.Namespace) -> int:
             any_orphan = True
         tag = "RESOLVED" if st.resolved else ("ORPHAN" if st.orphaned else "waiting")
         note = f" ({st.predicate_note})" if st.predicate_note else ""
-        exp = core.iso(st.expected_by_ts) if st.expected_by_ts else "(none)"
+        # NEW-2 (2026-08-07 independent review, delta pass): an
+        # unparseable opened_at makes age/expected_by_ts SYNTHESIZED
+        # stand-ins, not real measurements -- printing them verbatim next
+        # to ORPHAN reads as self-contradicting evidence. Render "?"
+        # instead whenever derive_status flagged the value as unknown.
+        age_str = "?" if st.age_unknown else core.human_age(st.age)
+        if st.expected_by_unknown:
+            exp = "?"
+        else:
+            exp = core.iso(st.expected_by_ts) if st.expected_by_ts else "(none)"
         print(
-            f"{t['id']:<28} {tag:<9} age={core.human_age(st.age):<8} "
+            f"{t['id']:<28} {tag:<9} age={age_str:<8} "
             f"expected_by={exp}{note}"
         )
         if args.verbose:

@@ -186,6 +186,31 @@ class TestCliRoundTrip(TempState):
                           f"lost registrations: expected {sorted(ids)}, got {sorted(registered)}")
 
 
+    def test_check_unparseable_opened_at_renders_unknown_age_and_expected_by(self):
+        # NEW-2 (2026-08-07 independent review, delta pass): same
+        # self-contradicting-rendering hazard as the warn hook, checked
+        # against `threads check`'s own output. Constructed by
+        # hand-writing state, since `threads add` always stamps a real
+        # opened_at.
+        state = {
+            "version": 1,
+            "threads": [{
+                "id": "f6thread", "what": "corrupt opened_at", "why": "y",
+                "predicate": "false", "opened_at": "not-a-timestamp",
+                "expected_by": "1d", "owner": "me",
+                "closed_at": None, "closed_reason": None,
+            }],
+        }
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        r = run_cli("check", "f6thread", env_extra=self.env)
+        self.assertEqual(r.returncode, 1)  # orphaned -> nonzero exit
+        self.assertIn("ORPHAN", r.stdout)
+        self.assertIn("age=?", r.stdout)
+        self.assertIn("expected_by=?", r.stdout)
+        self.assertNotRegex(r.stdout, r"expected_by=\d{4}-\d{2}-\d{2}")
+
+
+
 # ------------------------------------------------------------- library tests --
 
 class TestLibrary(unittest.TestCase):
@@ -447,6 +472,51 @@ class TestLibrary(unittest.TestCase):
 
 
 
+    # --------------------------------------------------------- NEW-2 --
+    # Delta-pass residual (2026-08-07 independent review, second pass):
+    # the F6 override above correctly DETECTS the orphan, but rendering
+    # its synthesized age/expected_by verbatim ("age 0s, expected_by
+    # tomorrow" beside "orphaned, right now") is self-contradicting
+    # evidence. derive_status now flags age_unknown/expected_by_unknown
+    # and adds an explicit "unparseable_opened_at" reason.
+
+    def test_derive_status_unparseable_opened_at_flags_age_and_expected_by_unknown(self):
+        thread = {
+            "id": "x", "predicate": "false",
+            "opened_at": "not-a-timestamp", "expected_by": "1d",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertTrue(st.age_unknown)
+        self.assertTrue(st.expected_by_unknown)
+        self.assertIn("unparseable_opened_at", st.orphan_reasons)
+        self.assertIn("overdue", st.orphan_reasons)
+
+    def test_derive_status_unparseable_opened_at_with_absolute_expected_by_is_only_age_unknown(self):
+        # Asymmetric case: opened_at is corrupt (age is always a guess),
+        # but a non-duration expected_by is a real, independent deadline
+        # -- expected_by_unknown must stay False, and since it's not yet
+        # due, "unparseable_opened_at" must not appear as a reason (the
+        # thread isn't even overdue, let alone orphaned via this path).
+        future = core.iso(core.now_utc() + core.timedelta(hours=1))
+        thread = {"id": "x", "predicate": "false", "opened_at": "garbage", "expected_by": future}
+        st = core.derive_status(thread, timeout=2)
+        self.assertTrue(st.age_unknown)
+        self.assertFalse(st.expected_by_unknown)
+        self.assertNotIn("unparseable_opened_at", st.orphan_reasons)
+
+    def test_derive_status_parseable_opened_at_is_never_age_or_expected_by_unknown(self):
+        opened = core.now_utc() - core.timedelta(seconds=5)
+        thread = {
+            "id": "x", "predicate": "false",
+            "opened_at": core.iso(opened), "expected_by": "1s",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertFalse(st.age_unknown)
+        self.assertFalse(st.expected_by_unknown)
+        self.assertNotIn("unparseable_opened_at", st.orphan_reasons)
+
+
+
     # ---------------------------------------------------------- F7 --
     # SCHEMA_VERSION was written on every save but never read back on
     # load -- a future schema bump would parse silently under old-schema
@@ -686,6 +756,38 @@ class TestWarnHookSpeaksWhenWarranted(TempState):
         block = payload["hookSpecificOutput"]["additionalContext"]
         self.assertIn("stuck", block)
         self.assertNotIn("fine", block)
+
+
+    def test_unparseable_opened_at_orphan_renders_unknown_age_and_expected_by(self):
+        # NEW-2 (2026-08-07 independent review, delta pass): this thread
+        # can only be constructed by hand-writing state -- `threads add`
+        # always stamps a real opened_at, so this simulates hand-edited /
+        # partial-write state, the same class this defense-in-depth
+        # exists for. Must render "age ?, expected_by ?" and the explicit
+        # "unparseable_opened_at" reason, never a synthesized "age 0s"
+        # next to a synthesized future expected_by.
+        state = {
+            "version": 1,
+            "threads": [{
+                "id": "f6thread", "what": "corrupt opened_at", "why": "y",
+                "predicate": "false", "opened_at": "not-a-timestamp",
+                "expected_by": "1d", "owner": "me",
+                "closed_at": None, "closed_reason": None,
+            }],
+        }
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+        r = run_hook(env_extra=self.env)
+        self.assertEqual(r.returncode, 0)
+        payload = json.loads(r.stdout)
+        block = payload["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("f6thread", block)
+        self.assertIn("unparseable_opened_at", block)
+        self.assertIn("age ?,", block)
+        self.assertIn("expected_by ?,", block)
+        # The old (buggy) rendering would have shown a real ISO timestamp
+        # for expected_by -- make sure none leaked through.
+        self.assertNotRegex(block, r"expected_by \d{4}-\d{2}-\d{2}")
+
 
 
 def _load_warn_hook_module():

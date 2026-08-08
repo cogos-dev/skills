@@ -411,6 +411,19 @@ class ThreadStatus:
     overdue: bool
     orphaned: bool
     orphan_reasons: list[str] = field(default_factory=list)
+    # NEW-2 in the 2026-08-07 independent review's delta pass: `age` and
+    # `expected_by_ts` above are still populated (for any caller that
+    # genuinely wants the synthesized fallback value), but when
+    # `opened_at` fails to parse, both are computed from `now` standing
+    # in for the real timestamp -- NOT a real measurement. Rendering them
+    # as if they were (e.g. "age 0s, expected_by <tomorrow>" right next
+    # to "overdue") is self-contradicting evidence on the operator's
+    # triage surface: it looks like a fresh, healthy, not-yet-due thread
+    # that also somehow orphaned. Callers that render a human-facing line
+    # (the warn hook, `threads check`, `threads list`) MUST check these
+    # flags and render "?" instead of the synthesized value when set.
+    age_unknown: bool = False
+    expected_by_unknown: bool = False
 
 
 def derive_status(
@@ -461,15 +474,35 @@ def derive_status(
     would silently never become overdue and never be checkable by this
     hook again. Rather than trust that receding deadline, a thread in
     exactly this state (unparseable opened_at + duration expected_by) is
-    treated as already overdue-eligible."""
+    treated as already overdue-eligible.
+
+    NEW-2 in that same review's delta pass: the fix above makes the
+    thread correctly DETECTABLE as orphaned, but `age` (`now - opened`,
+    with `opened` standing in for the unparseable real value) and, in
+    the duration-expected_by case, `expected_by_ts` (computed FROM that
+    same stand-in) are synthesized, not measured -- rendering them
+    verbatim next to "overdue" reads as self-contradicting evidence
+    ("age 0s, expected_by tomorrow" beside "orphaned, right now"). Both
+    are still returned (some callers may legitimately want a fallback
+    value rather than nothing), but `age_unknown`/`expected_by_unknown`
+    tell a rendering caller when to show "?" instead: `age_unknown` is
+    set whenever `opened_at` didn't parse at all (age is ALWAYS a guess
+    in that case, regardless of what `expected_by` looks like);
+    `expected_by_unknown` is set only in the narrower case above, where
+    `expected_by_ts` was itself derived from the guessed `opened`. An
+    absolute (non-duration) `expected_by` paired with a corrupt
+    `opened_at` is NOT `expected_by_unknown` -- that deadline is real,
+    independent of `opened_at` entirely."""
     now = now or now_utc()
     opened_parsed = parse_ts(thread.get("opened_at"))
     opened = opened_parsed or now
     expected = parse_expected_by(thread.get("expected_by"), opened)
     predicate = (thread.get("predicate") or "").strip()
     can_be_overdue = bool(expected) and now > expected
+    opened_at_unparseable_override = False
     if opened_parsed is None and DURATION_RE.match((thread.get("expected_by") or "").strip()):
         can_be_overdue = True
+        opened_at_unparseable_override = True
 
     if skip_predicate_if_not_due and not can_be_overdue:
         pred = PredicateResult(resolved=False, note="skipped: not due yet")
@@ -483,6 +516,8 @@ def derive_status(
     reasons = []
     if overdue:
         reasons.append("overdue")
+        if opened_at_unparseable_override:
+            reasons.append("unparseable_opened_at")
     # Owner-liveness ("the registering session is gone") is intentionally
     # NOT checked here: it would require a network call to the kernel, and
     # this function is called from the per-turn warn hook. `threads check`
@@ -502,6 +537,8 @@ def derive_status(
         overdue=overdue,
         orphaned=orphaned,
         orphan_reasons=reasons,
+        age_unknown=(opened_parsed is None),
+        expected_by_unknown=opened_at_unparseable_override,
     )
 
 
