@@ -385,6 +385,68 @@ class TestLibrary(unittest.TestCase):
         self.assertFalse(st.resolved)
 
 
+    # ---------------------------------------------------------- F6 --
+    # opened_at unparseable + expected_by a *duration* would otherwise
+    # recompute `now + duration` fresh on every call -- a deadline that
+    # recedes forever and can never be reached, making the thread
+    # permanently invisible to the warn hook. Defense-in-depth mirrors the
+    # blank-predicate case: treat it as already overdue-eligible.
+
+    def test_derive_status_unparseable_opened_at_with_duration_expected_by_is_overdue(self):
+        thread = {
+            "id": "x", "predicate": "false",
+            "opened_at": "not-a-timestamp", "expected_by": "1d",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertTrue(st.overdue)
+        self.assertTrue(st.orphaned)
+
+    def test_derive_status_missing_opened_at_with_duration_expected_by_is_overdue(self):
+        thread = {"id": "x", "predicate": "false", "expected_by": "1h"}
+        st = core.derive_status(thread, timeout=2)
+        self.assertTrue(st.overdue)
+        self.assertTrue(st.orphaned)
+
+    def test_derive_status_resolved_thread_with_unparseable_opened_at_still_never_orphaned(self):
+        # The overdue-eligible override must not itself force orphaned --
+        # a resolved predicate is still never orphaned, same invariant as
+        # test_derive_status_resolved_thread_is_never_orphaned_even_if_overdue.
+        thread = {
+            "id": "x", "predicate": "true",
+            "opened_at": "garbage", "expected_by": "1h",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertTrue(st.resolved)
+        self.assertFalse(st.orphaned)
+
+    def test_derive_status_unparseable_opened_at_with_absolute_expected_by_is_unaffected(self):
+        # The F6 defense-in-depth is scoped to DURATION expected_by only
+        # -- an absolute ISO8601 expected_by is computed independently of
+        # opened_at and does not recede regardless, so a corrupt
+        # opened_at paired with a not-yet-due absolute deadline must
+        # behave exactly as before: not overdue.
+        future = core.iso(core.now_utc() + core.timedelta(hours=1))
+        thread = {"id": "x", "predicate": "false", "opened_at": "garbage", "expected_by": future}
+        st = core.derive_status(thread, timeout=2)
+        self.assertFalse(st.overdue)
+        self.assertFalse(st.orphaned)
+
+    def test_derive_status_parseable_opened_at_with_duration_expected_by_is_unaffected(self):
+        # Sanity check that the F6 override only fires when opened_at
+        # itself fails to parse -- a normal, healthy thread with a
+        # parseable opened_at and a duration expected_by must behave
+        # exactly as before (not yet overdue, since it was just opened).
+        opened = core.now_utc()
+        thread = {
+            "id": "x", "predicate": "false",
+            "opened_at": core.iso(opened), "expected_by": "1h",
+        }
+        st = core.derive_status(thread, timeout=2)
+        self.assertFalse(st.overdue)
+        self.assertFalse(st.orphaned)
+
+
+
 # ------------------------------------------------------------ hook tests --
 
 class TestWarnHookSilence(TempState):

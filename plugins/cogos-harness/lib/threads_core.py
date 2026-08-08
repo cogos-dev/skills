@@ -366,12 +366,28 @@ def derive_status(
     surfaced by the warn hook, because a not-yet-due thread can never be
     orphaned regardless of it. `threads check` never sets this flag, so
     the interactive CLI's `resolved` column always reflects a real
-    predicate run."""
+    predicate run.
+
+    A second defense-in-depth case, same class as the blank-predicate one
+    above (F6 in the 2026-08-07 independent review): if `opened_at` fails
+    to parse (missing, corrupt, hand-edited) it falls back to `now` below
+    -- fine on its own, but when `expected_by` is a *duration* ("1d")
+    rather than an absolute timestamp, `expected` is computed as `opened +
+    duration`, i.e. `now + duration`, recomputed FRESH every call. A
+    deadline defined as "now plus a fixed offset" can never be reached --
+    it recedes by exactly the wall-clock gap between calls, so the thread
+    would silently never become overdue and never be checkable by this
+    hook again. Rather than trust that receding deadline, a thread in
+    exactly this state (unparseable opened_at + duration expected_by) is
+    treated as already overdue-eligible."""
     now = now or now_utc()
-    opened = parse_ts(thread.get("opened_at")) or now
+    opened_parsed = parse_ts(thread.get("opened_at"))
+    opened = opened_parsed or now
     expected = parse_expected_by(thread.get("expected_by"), opened)
     predicate = (thread.get("predicate") or "").strip()
     can_be_overdue = bool(expected) and now > expected
+    if opened_parsed is None and DURATION_RE.match((thread.get("expected_by") or "").strip()):
+        can_be_overdue = True
 
     if skip_predicate_if_not_due and not can_be_overdue:
         pred = PredicateResult(resolved=False, note="skipped: not due yet")
@@ -381,7 +397,7 @@ def derive_status(
         pred = run_predicate(predicate, timeout)
 
     age = now - opened
-    overdue = bool(expected and now > expected and not pred.resolved)
+    overdue = can_be_overdue and not pred.resolved
     reasons = []
     if overdue:
         reasons.append("overdue")
