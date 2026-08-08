@@ -150,7 +150,17 @@ plugin should absorb without a separate decision:
   presence handler); falls back to `claude-code`
 - `COGOS_THREADS_STATE` — path to the threads registry JSON file, read/
   written by `bin/threads`, `hooks/threads-warn.py`, and
-  `hooks/threads-gate-pr.py`; falls back to `~/.cog/status/threads.json`
+  `hooks/threads-gate-pr.py`; falls back to `~/.cog/status/threads.json`.
+  Two tiny sidecar files live next to it, named from it (not independently
+  configurable): `.threads.json.lock`, an flock-guarded advisory lock
+  `locked_state()` holds across a CLI read-modify-write so concurrent
+  `threads add`/`close` invocations serialize instead of racing; and
+  `.threads.json.rotation`, a persisted counter `threads-warn.py` uses to
+  rotate its scan order across turns (see F1/`_rotation_offset()` above).
+  Both are best-effort scratch state — safe to delete by hand, and every
+  read failure on either one degrades to a default (block briefly and
+  retry for the lock; offset 0, today's un-rotated order, for the
+  counter) rather than an error.
 - `COGOS_THREADS_CONFIG` — path to the threads config file (currently just
   the `enforce_pr_create_thread` key); falls back to
   `~/.cog/status/threads-config.json`
