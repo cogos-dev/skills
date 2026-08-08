@@ -171,7 +171,19 @@ def load_state(path: Path = STATE_PATH) -> dict:
     readers -- a future schema bump silently parsed under old-schema
     assumptions is a worse failure than a loud, immediate refusal to
     load. (F7 in the 2026-08-07 independent review: SCHEMA_VERSION was
-    written on every save but never read back on load.)"""
+    written on every save but never read back on load.)
+
+    A `version` field that IS present but isn't an int (a hand-edited
+    `"2"`, `2.0`, `null`-as-a-string, whatever) is rejected the same way
+    -- `isinstance(version, int) and version > SCHEMA_VERSION` alone lets
+    a non-int value slide through un-checked, since `isinstance(..., int)`
+    is simply False for it and the newer-than-supported branch never
+    fires. That's the same "silently parse under the wrong assumptions"
+    failure this guard exists to prevent, just via a type mismatch
+    instead of a numeric one (residual from the 2026-08-07 independent
+    review's delta pass). `bool` is deliberately excluded even though
+    Python's `bool` subclasses `int` -- `"version": true` is not a
+    version number."""
     if not path.exists():
         return _default_state()
     try:
@@ -189,14 +201,21 @@ def load_state(path: Path = STATE_PATH) -> dict:
             f"{path}: unexpected shape (expected an object with a 'threads' list)"
         )
     version = data.get("version")
-    if isinstance(version, int) and version > SCHEMA_VERSION:
-        raise CorruptStateError(
-            f"{path}: state file is schema version {version}, this code only "
-            f"understands up to version {SCHEMA_VERSION} -- refusing to load "
-            f"a file a newer version of this plugin may have written in a "
-            f"shape this code doesn't understand. Upgrade the plugin, or "
-            f"move the file aside by hand."
-        )
+    if version is not None:
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise CorruptStateError(
+                f"{path}: 'version' is {version!r}, expected an integer -- "
+                f"refusing to load a state file whose own schema-version "
+                f"field doesn't parse as one."
+            )
+        if version > SCHEMA_VERSION:
+            raise CorruptStateError(
+                f"{path}: state file is schema version {version}, this code only "
+                f"understands up to version {SCHEMA_VERSION} -- refusing to load "
+                f"a file a newer version of this plugin may have written in a "
+                f"shape this code doesn't understand. Upgrade the plugin, or "
+                f"move the file aside by hand."
+            )
     for t in data["threads"]:
         if not isinstance(t, dict) or not t.get("id"):
             raise CorruptStateError(f"{path}: a thread entry is malformed (missing 'id')")

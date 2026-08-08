@@ -473,6 +473,40 @@ class TestLibrary(unittest.TestCase):
         data = core.load_state(p)
         self.assertEqual(data["threads"], [])
 
+    def test_load_state_string_version_is_corrupt(self):
+        # F7 residual (2026-08-07 independent review, delta pass):
+        # isinstance(version, int) alone lets a non-int version slide
+        # through un-checked (the newer-than-supported branch simply
+        # never fires for it) -- a hand-edited '"version": "2"' must be
+        # rejected, not silently loaded under this code's assumptions.
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": "2", "threads": []}), encoding="utf-8")
+        with self.assertRaises(core.CorruptStateError):
+            core.load_state(p)
+
+    def test_load_state_float_version_is_corrupt(self):
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": 1.0, "threads": []}), encoding="utf-8")
+        with self.assertRaises(core.CorruptStateError):
+            core.load_state(p)
+
+    def test_load_state_bool_version_is_corrupt(self):
+        # bool is an int subclass in Python -- must not slip past the
+        # isinstance(int) check as if `true` were a real version number.
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": True, "threads": []}), encoding="utf-8")
+        with self.assertRaises(core.CorruptStateError):
+            core.load_state(p)
+
+    def test_load_state_null_version_is_treated_as_absent(self):
+        # Explicit JSON null and a missing key are the same "no
+        # information" case -- both must load fine, not be rejected as a
+        # type mismatch.
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": None, "threads": []}), encoding="utf-8")
+        data = core.load_state(p)
+        self.assertEqual(data["threads"], [])
+
 
 
     # ---------------------------------------------------------- F8 --
