@@ -447,6 +447,34 @@ class TestLibrary(unittest.TestCase):
 
 
 
+    # ---------------------------------------------------------- F7 --
+    # SCHEMA_VERSION was written on every save but never read back on
+    # load -- a future schema bump would parse silently under old-schema
+    # assumptions instead of failing loudly.
+
+    def test_load_state_future_schema_version_is_corrupt(self):
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": core.SCHEMA_VERSION + 1, "threads": []}), encoding="utf-8")
+        with self.assertRaises(core.CorruptStateError):
+            core.load_state(p)
+
+    def test_load_state_current_schema_version_loads_fine(self):
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"version": core.SCHEMA_VERSION, "threads": []}), encoding="utf-8")
+        data = core.load_state(p)
+        self.assertEqual(data["version"], core.SCHEMA_VERSION)
+
+    def test_load_state_missing_version_key_loads_fine(self):
+        # A version key is only enforced when PRESENT -- a state file
+        # that predates this field entirely (or one some other tool wrote
+        # without it) must not be rejected on that basis alone.
+        p = Path(tempfile.mkdtemp()) / "threads.json"
+        p.write_text(json.dumps({"threads": []}), encoding="utf-8")
+        data = core.load_state(p)
+        self.assertEqual(data["threads"], [])
+
+
+
 # ------------------------------------------------------------ hook tests --
 
 class TestWarnHookSilence(TempState):

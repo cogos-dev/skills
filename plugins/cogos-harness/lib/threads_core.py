@@ -161,7 +161,16 @@ def load_state(path: Path = STATE_PATH) -> dict:
     CorruptStateError, always -- never silently reset. Empty-but-present
     file is treated as corrupt too (a 0-byte file is not a valid empty
     state; our own atomic writer never produces one, so its presence means
-    something wrote outside this module's contract)."""
+    something wrote outside this module's contract).
+
+    Also enforces SCHEMA_VERSION: a `version` newer than this code
+    supports raises CorruptStateError rather than being parsed under the
+    wrong assumptions. This is a single-user machine, not a service with
+    rolling deploys and compatibility obligations to a fleet of other
+    readers -- a future schema bump silently parsed under old-schema
+    assumptions is a worse failure than a loud, immediate refusal to
+    load. (F7 in the 2026-08-07 independent review: SCHEMA_VERSION was
+    written on every save but never read back on load.)"""
     if not path.exists():
         return _default_state()
     try:
@@ -177,6 +186,15 @@ def load_state(path: Path = STATE_PATH) -> dict:
     if not isinstance(data, dict) or not isinstance(data.get("threads"), list):
         raise CorruptStateError(
             f"{path}: unexpected shape (expected an object with a 'threads' list)"
+        )
+    version = data.get("version")
+    if isinstance(version, int) and version > SCHEMA_VERSION:
+        raise CorruptStateError(
+            f"{path}: state file is schema version {version}, this code only "
+            f"understands up to version {SCHEMA_VERSION} -- refusing to load "
+            f"a file a newer version of this plugin may have written in a "
+            f"shape this code doesn't understand. Upgrade the plugin, or "
+            f"move the file aside by hand."
         )
     for t in data["threads"]:
         if not isinstance(t, dict) or not t.get("id"):
