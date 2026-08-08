@@ -369,6 +369,13 @@ def run_predicate(cmd: str, timeout: float) -> PredicateResult:
     except subprocess.TimeoutExpired:
         _killpg(proc.pid)
         try:
+            # NEW-4 (2026-08-07 independent review, delta pass): this reap
+            # wait can itself add up to 2s of wall-clock overshoot beyond
+            # the predicate's own timeout on a killed process -- bounded
+            # and accepted at shipped defaults (THREADS_PREDICATE_TIMEOUT
+            # 3s, THREADS_TOTAL_BUDGET 4s keep the warn hook's worst case
+            # well under hooks.json's 8s timeout for threads-warn.py; see
+            # README.md's env var reference for both).
             proc.wait(timeout=2)
         except Exception:
             pass  # best-effort reap; a still-unreaped zombie here is not
