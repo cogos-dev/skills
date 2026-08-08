@@ -1190,6 +1190,33 @@ class TestGatePrCommandTokenizer(unittest.TestCase):
         # failing to catch it without anyone noticing either way.
         self.assertFalse(self.gate._looks_like_gh_pr_create("echo `gh pr create --title x`"))
 
+    # ---------------------------------------------------------- NEW-5 --
+    # Delta-pass residual, second pass (2026-08-07 independent review):
+    # a trailing `)` fused to the LAST of the first three tokens defeated
+    # the subshell strip -- `_strip_leading_noise()` only ever handled
+    # the OPENING `(`. The no-trailing-flags form of each subshell case
+    # above (i.e. nothing after `create` for the `)` to land on instead)
+    # is exactly where this bites: `create)` != `create`.
+
+    def test_subshell_paren_no_flags_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("(gh pr create)"))
+
+    def test_command_substitution_no_flags_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("FOO=$(gh pr create)"))
+
+    def test_subshell_paren_plus_env_assignment_no_flags_is_detected(self):
+        self.assertTrue(self.gate._looks_like_gh_pr_create("(GH_TOKEN=x gh pr create)"))
+
+    def test_trailing_paren_stripping_does_not_reintroduce_false_positives(self):
+        # Regression guard: rstrip(")") on the first three tokens must
+        # not turn an unrelated command into a false match, and the
+        # documented-limit cases from the sections above must stay
+        # exactly as documented (still not caught).
+        self.assertFalse(self.gate._looks_like_gh_pr_create('git commit -m "docs: gh pr create)"'))
+        self.assertFalse(self.gate._looks_like_gh_pr_create("echo hi | xargs -I{} gh pr create {}"))
+        self.assertFalse(self.gate._looks_like_gh_pr_create("echo `gh pr create`"))
+        self.assertFalse(self.gate._looks_like_gh_pr_create("C=create; gh pr $C"))
+
 
 class TestGatePrArmedDeniesNewFalseNegatives(TempState):
     """Subprocess-level companions to the NEW-1 unit tests above: the
@@ -1230,6 +1257,19 @@ class TestGatePrArmedDeniesNewFalseNegatives(TempState):
 
     def test_subshell_paren_invocation_denied_when_armed(self):
         self._assert_denied("(gh pr create --title x --body y)")
+
+    # NEW-5 (2026-08-07 independent review, delta pass, second pass):
+    # the exact three reproductions from the review, at the full-gate
+    # (armed, zero threads) level, not just the tokenizer function.
+
+    def test_subshell_paren_no_flags_denied_when_armed(self):
+        self._assert_denied("(gh pr create)")
+
+    def test_command_substitution_no_flags_denied_when_armed(self):
+        self._assert_denied("FOO=$(gh pr create)")
+
+    def test_subshell_paren_plus_env_assignment_no_flags_denied_when_armed(self):
+        self._assert_denied("(GH_TOKEN=x gh pr create)")
 
 
 if __name__ == "__main__":

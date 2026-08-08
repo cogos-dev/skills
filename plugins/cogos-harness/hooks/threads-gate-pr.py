@@ -94,7 +94,13 @@ def _split_commands(command: str) -> list[str]:
       - Subshell parens: only a `(` FUSED TO THE FRONT of the first token
         of a segment (`(gh pr create ...)`) is stripped, by
         `_strip_leading_noise()` below, not general paren-grouping
-        anywhere in a command.
+        anywhere in a command. The mirror case -- a `)` fused to the END
+        of whichever of the first three tokens closes the subshell, e.g.
+        the no-trailing-flags form `(gh pr create)` where `)` lands
+        directly on `create` -- is handled separately, per-token, in
+        `_looks_like_gh_pr_create()` itself (NEW-5 in that same delta
+        pass) rather than here, since which token it fuses to depends on
+        how many flags follow `create` in the actual command.
     This gate only ever denies a LITERAL `gh pr create` invocation;
     anyone motivated enough to obfuscate past a warn-tier gate on their
     own machine can already do so, same as any other client-side check."""
@@ -163,7 +169,14 @@ def _looks_like_gh_pr_create(command: str) -> bool:
     anywhere after that are irrelevant -- this only needs to detect that
     the invocation exists at all; the registry check downstream is what
     decides allow/deny). Leading subshell `(` and env-assignment tokens
-    are stripped first (see `_strip_leading_noise()`). See
+    are stripped first (see `_strip_leading_noise()`); a trailing `)`
+    fused to whichever of the first three tokens closes the subshell
+    (`(gh pr create)` -> `create)`, `FOO=$(gh pr create)` -> `create)`)
+    is stripped per-token from those same three tokens before the
+    compare (NEW-5 in the 2026-08-07 independent review's delta pass: a
+    closing paren with nothing after it -- the no-flags case -- fused
+    directly onto `create` and defeated the match even though
+    `_strip_leading_noise()` had already handled the opening side). See
     `_split_commands()` for the documented limits, most notably: no
     variable-substitution evasion detection."""
     for segment in _split_commands(command):
@@ -176,7 +189,8 @@ def _looks_like_gh_pr_create(command: str) -> bool:
             # main()'s fail-open catch-all.
             continue
         argv = _strip_leading_noise(argv)
-        if argv[:3] == ["gh", "pr", "create"]:
+        head = [tok.rstrip(")") for tok in argv[:3]]
+        if head == ["gh", "pr", "create"]:
             return True
     return False
 
