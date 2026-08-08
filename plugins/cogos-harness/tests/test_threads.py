@@ -654,6 +654,176 @@ class TestWarnHookSpeaksWhenWarranted(TempState):
         self.assertNotIn("fine", block)
 
 
+def _load_warn_hook_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cogos_threads_warn_hook", HOOK_WARN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _ScriptedClock:
+    """A fake `time.monotonic`-shaped callable that returns a scripted
+    sequence of values, repeating the last one once exhausted. Lets a
+    test drive threads-warn.py's budget-exhaustion path deterministically
+    instead of depending on real predicate/OS timing -- see F1 tests
+    below for why that matters."""
+
+    def __init__(self, values):
+        self.values = list(values)
+        self.i = 0
+
+    def __call__(self):
+        v = self.values[min(self.i, len(self.values) - 1)]
+        self.i += 1
+        return v
+
+
+class TestWarnHookBudgetFairness(TempState):
+    """F1 (HIGH, 2026-08-07 independent review): budget exhaustion used
+    to silently suppress the entire orphan report whenever the threads
+    ahead of a genuine orphan in registry order consumed the whole
+    wall-clock budget -- reproduced 5/5 in review. Two fixes, both
+    exercised here: the budget note now renders unconditionally
+    (`_render_block`), and scan order rotates across invocations
+    (`_rotation_offset`) so the same thread doesn't starve forever.
+
+    These drive threads-warn.py's internal functions directly with a
+    scripted clock rather than spawning the hook as a subprocess and
+    hoping real predicate/OS timing lines up -- the reviewer's own repro
+    needed "COGOS_THREADS_TOTAL_BUDGET=1.0, 5/5 runs" phrasing because
+    real-timing reproduction is inherently a race; a scripted clock makes
+    the exact scenario deterministic instead."""
+
+    def setUp(self):
+        super().setUp()
+        self.hook = _load_warn_hook_module()
+
+    def _overdue_thread(self, id_, predicate):
+        import threads_core as core
+        opened = core.now_utc() - core.timedelta(seconds=5)
+        return {
+            "id": id_, "predicate": predicate,
+            "opened_at": core.iso(opened), "expected_by": "1s",
+        }
+
+    # -- _render_block: the unconditional-notice half of the fix --------
+
+    def test_render_block_is_none_when_nothing_found_and_nothing_skipped(self):
+        self.assertIsNone(self.hook._render_block([], 0))
+
+    def test_render_block_budget_only_notice_is_nonempty(self):
+        # This is the exact case F1 flags: zero orphans found, but some
+        # threads were never checked. Pre-fix this rendered nothing.
+        block = self.hook._render_block([], skipped_for_budget=2)
+        self.assertIsNotNone(block)
+        self.assertNotEqual(block.strip(), "")
+        self.assertIn("over budget", block)
+        self.assertIn("threads_warn", block)
+
+    def test_render_block_orphans_plus_budget_note_both_present(self):
+        block = self.hook._render_block(['⚠ x (overdue): "y"'], skipped_for_budget=1)
+        self.assertIn("⚠ x", block)
+        self.assertIn("over budget", block)
+
+    # -- _scan: reproduces the exact starvation scenario ----------------
+
+    def test_starvation_scenario_budget_consumed_by_nonorphaned_threads(self):
+        # Registry order: two threads whose predicates run to completion
+        # and resolve TRUE (never orphaned) ahead of a genuine orphan
+        # last in registry order. The scripted clock simulates the
+        # budget being consumed by the time the first thread finishes,
+        # so the second and third (including the genuine orphan) are
+        # dropped at the loop-top budget check without their predicate
+        # ever running -- byte-for-byte the reviewer's repro, just
+        # clock-driven instead of timing-driven.
+        import threads_core as core
+        threads = [
+            self._overdue_thread("healthy-a", "true"),
+            self._overdue_thread("healthy-b", "true"),
+            self._overdue_thread("genuine-orphan", "false"),
+        ]
+        clock = _ScriptedClock([0.0, 0.1, 0.2, 5.0, 5.0, 5.0, 5.0, 5.0])
+        rotation_path = self.state_path.with_name(".rotation-starvation-test")
+
+        orphan_lines, skipped = self.hook._scan(
+            threads, core, budget=1.0, predicate_timeout=3.0,
+            clock=clock, rotation_path=rotation_path,
+        )
+
+        self.assertEqual(orphan_lines, [], "setup sanity: the orphan must be among the SKIPPED threads")
+        self.assertEqual(skipped, 2)
+
+        # The fixed hook's actual output for this exact scan result must
+        # be non-empty -- this is the assertion F1 calls out as missing:
+        # "no test exercises COGOS_THREADS_TOTAL_BUDGET exhaustion at
+        # all."
+        block = self.hook._render_block(orphan_lines, skipped)
+        self.assertIsNotNone(block, "F1: must not stay silent when threads were skipped for budget")
+        self.assertNotEqual(block.strip(), "")
+        self.assertIn("over budget", block)
+
+    # -- _rotation_offset / rotation-in-_scan: the fairness half --------
+
+    def test_rotation_offset_cycles_through_every_position(self):
+        rotation_path = self.state_path.with_name(".rotation-cycle-test")
+        offsets = [self.hook._rotation_offset(3, rotation_path) for _ in range(7)]
+        self.assertEqual(offsets, [0, 1, 2, 0, 1, 2, 0])
+
+    def test_rotation_offset_single_thread_is_always_zero(self):
+        rotation_path = self.state_path.with_name(".rotation-single-test")
+        self.assertEqual(self.hook._rotation_offset(1, rotation_path), 0)
+        self.assertEqual(self.hook._rotation_offset(1, rotation_path), 0)
+
+    def test_rotation_offset_missing_counter_file_starts_at_zero(self):
+        rotation_path = self.state_path.with_name(".rotation-missing-test")
+        self.assertFalse(rotation_path.exists())
+        self.assertEqual(self.hook._rotation_offset(4, rotation_path), 0)
+
+    def test_rotation_offset_corrupt_counter_file_falls_back_to_zero(self):
+        rotation_path = self.state_path.with_name(".rotation-corrupt-test")
+        rotation_path.write_text("not-a-number", encoding="utf-8")
+        self.assertEqual(self.hook._rotation_offset(3, rotation_path), 0)
+
+    def test_rotation_eventually_surfaces_the_orphan(self):
+        # The scenario rotation exists to fix: with a FIXED scan order, a
+        # budget tight enough to check only one thread per turn NEVER
+        # reaches the genuine orphan sitting last in registry order --
+        # every turn starves it identically. Across repeated invocations
+        # (one rotation counter, persisted, like real per-turn hook
+        # calls), rotation must eventually put it first.
+        import threads_core as core
+        threads = [
+            self._overdue_thread("healthy-a", "true"),
+            self._overdue_thread("healthy-b", "true"),
+            self._overdue_thread("genuine-orphan", "false"),
+        ]
+        rotation_path = self.state_path.with_name(".rotation-eventual-test")
+        found_orphan_on_turn = []
+
+        for turn in range(3):
+            # Fresh scripted clock each "turn" (each hook invocation gets
+            # its own budget window in reality); same shape as the
+            # starvation test -- budget covers exactly one thread.
+            clock = _ScriptedClock([0.0, 0.1, 0.2, 5.0, 5.0, 5.0, 5.0, 5.0])
+            orphan_lines, _skipped = self.hook._scan(
+                threads, core, budget=1.0, predicate_timeout=3.0,
+                clock=clock, rotation_path=rotation_path,
+            )
+            if any("genuine-orphan" in line for line in orphan_lines):
+                found_orphan_on_turn.append(turn)
+
+        self.assertTrue(found_orphan_on_turn, "rotation never surfaced the orphan across 3 turns")
+        # Deterministic for this exact setup: a fresh rotation counter
+        # cycles offsets 0, 1, 2 across the three turns, and the orphan
+        # sits at index 2 in registry order -- so it's scanned FIRST (and
+        # thus actually checked, since the budget only covers one thread)
+        # on exactly the third turn.
+        self.assertEqual(found_orphan_on_turn, [2])
+
+
+
+
 class TestGatePrScaffoldDisabledByDefault(TempState):
     """The enforcement-tier hook itself, per the build's requirement that
     it's present but inert unless explicitly armed."""

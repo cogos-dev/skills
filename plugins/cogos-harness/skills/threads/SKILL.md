@@ -138,11 +138,28 @@ threads check --verbose      # + what/why/predicate/owner per thread
 verdict. Exit code is `1` if any checked thread came back orphaned, `0`
 otherwise, so it composes in scripts.
 
-The `hooks/threads-warn.py` UserPromptSubmit hook does this same check,
-silently, on every turn — but only ever *speaks* when a thread is
-orphaned (unresolved AND past `expected_by`). A quiet session means either
-no open threads or all of them are still on-track; it does not mean the
-registry was never checked.
+The `hooks/threads-warn.py` UserPromptSubmit hook does a bounded version of
+this check every turn — bounded in two ways worth knowing about:
+
+- It only actually *runs* a thread's predicate once that thread is past its
+  `expected_by`. A thread with a distant deadline costs nothing, turn after
+  turn, until it's actually due — its predicate's exit code can't change
+  the orphaned/not-orphaned answer before then, so the hook skips invoking
+  it (no subprocess, no possible network call) rather than paying full
+  predicate latency every single turn for the thread's entire lifetime.
+- The whole pass over all open threads is bounded by an overall wall-clock
+  budget (`COGOS_THREADS_TOTAL_BUDGET`). If the budget runs out before
+  every open thread could be checked, the hook says so explicitly (`N open
+  thread(s) not checked this turn — over budget`) rather than staying
+  silent — silence specifically means "checked and found nothing," never
+  "ran out of time before looking." Scan order also rotates across turns,
+  so a thread that gets skipped for budget this turn is checked earlier on
+  a later one instead of starving forever.
+
+It speaks only when a thread comes back orphaned (unresolved AND past
+`expected_by`) or when the budget note above applies. A quiet turn means
+every open thread that was actually checked came back fine — not that the
+registry was never looked at.
 
 ## Closing a thread
 
@@ -152,8 +169,9 @@ threads close pr118-verdict --reason "approved, merged in #118"
 
 Closing is a separate, explicit, declared act from the predicate
 resolving. A resolved-but-unclosed thread still shows up in `threads list`
-and still gets checked by the warn hook (though a resolved thread is never
-reported as orphaned, regardless of `expected_by`) — this is intentional:
+and, once it's past `expected_by`, still gets checked by the warn hook
+(though a resolved thread is never reported as orphaned, regardless of
+`expected_by`) — this is intentional:
 resolution is a fact about the world, closing is an acknowledgment that a
 person or agent actually looked at that fact and did something about it.
 Don't script "auto-close on resolve" — that collapses the two moments back
