@@ -352,6 +352,23 @@ def record_hook(report: dict, hook: str, cycle: str, variant: str, expect: dict,
         except Exception as e:
             checks.append(f"stdout not valid JSON: {e}"); ok = False
 
+    if expect.get("stdout_json_block"):
+        # The memory-janitor hook's third output shape: not silent, not a
+        # hookSpecificOutput envelope -- one line of {"decision": "block",
+        # "reason": "..."} JSON, nothing else on stdout.
+        lines = stdout_text.splitlines()
+        if len(lines) != 1:
+            checks.append(f"expected exactly one line of block JSON, got {len(lines)} line(s)"); ok = False
+        else:
+            try:
+                d = json.loads(lines[0])
+                if d.get("decision") != "block" or not isinstance(d.get("reason"), str) or not d["reason"]:
+                    checks.append(f"block JSON missing decision=block / non-empty reason: {d!r}"); ok = False
+                else:
+                    checks.append("stdout is valid one-line block JSON")
+            except Exception as e:
+                checks.append(f"stdout not valid JSON: {e}"); ok = False
+
     entry = {
         "hook": hook, "cycle": cycle, "variant": variant, "ok": ok,
         "returncode": result["returncode"], "timed_out": result["timed_out"],
@@ -457,6 +474,52 @@ def run_cycle(cycle_name, kernel_url, sandbox_home, work_dir, cache_root, data_d
         "session_id": sid, "cwd": str(work_dir), "hook_event_name": "SessionEnd", "reason": "other",
     }, env)
     record_hook(report, "user-scope-session-end.py", cycle_name, "end", {"stdout_empty": True}, r)
+
+    # 7. memory-janitor.py -- a Stop hook, not part of the SessionStart(*)
+    # .. SessionEnd(*) lifecycle bracket above, but it IS registered in
+    # hooks.json (unlike kernel-vitals-probe.py in step 4) and is the only
+    # hook in this plugin that can block a turn, so it gets its own direct
+    # coverage here rather than none at all. Two variants, both pointed at
+    # fixture files scoped to this cycle via explicit COG_JANITOR_FILE /
+    # COG_JANITOR_STATE_DIR overrides -- never the real (nonexistent, in
+    # this sandbox) per-project MEMORY.md, and never sharing a pending
+    # marker across the two variants or across cycles:
+    #   - a small healthy fixture, well under even the default trigger ->
+    #     documented silent/exit-0 shape, same as the lifecycle hooks above.
+    #   - a fixture forced over threshold via COG_JANITOR_TRIGGER (paired
+    #     with COG_JANITOR_TARGET/COG_JANITOR_FLOOR so the arm-time
+    #     floor<target<=trigger invariant the hook itself now enforces
+    #     stays satisfied -- an inconsistent trio would make the hook skip
+    #     the block instead of firing it) -> the third output shape: one
+    #     line of {"decision": "block", "reason": ...} JSON, not the
+    #     hookSpecificOutput envelope the prompt-submit hook uses.
+    janitor_root = work_dir / f"janitor-fixtures-{cycle_name}"
+
+    healthy_file = janitor_root / "healthy" / "memory" / "MEMORY.md"
+    healthy_file.parent.mkdir(parents=True, exist_ok=True)
+    healthy_file.write_text("# MEMORY\n\n- canary fixture, nowhere near any threshold\n")
+    healthy_env = dict(env,
+                        COG_JANITOR_FILE=str(healthy_file),
+                        COG_JANITOR_STATE_DIR=str(janitor_root / "healthy" / "janitor"))
+    r = run_hook(hooks_dir / "memory-janitor.py", {
+        "session_id": sid, "cwd": str(work_dir), "hook_event_name": "Stop",
+    }, healthy_env)
+    record_hook(report, "memory-janitor.py", cycle_name, "healthy-silence", {"stdout_empty": True}, r)
+
+    trigger_file = janitor_root / "trigger" / "memory" / "MEMORY.md"
+    trigger_file.parent.mkdir(parents=True, exist_ok=True)
+    trigger_file.write_text(
+        "# MEMORY\n\n- canary fixture deliberately forced over a tiny trigger "
+        "so the Stop hook blocks and emits its block-JSON output shape\n"
+    )
+    trigger_env = dict(env,
+                        COG_JANITOR_FILE=str(trigger_file),
+                        COG_JANITOR_STATE_DIR=str(janitor_root / "trigger" / "janitor"),
+                        COG_JANITOR_FLOOR="10", COG_JANITOR_TARGET="20", COG_JANITOR_TRIGGER="30")
+    r = run_hook(hooks_dir / "memory-janitor.py", {
+        "session_id": sid, "cwd": str(work_dir), "hook_event_name": "Stop",
+    }, trigger_env)
+    record_hook(report, "memory-janitor.py", cycle_name, "forced-trigger", {"stdout_json_block": True}, r)
 
     return sid
 
