@@ -74,9 +74,9 @@ Skills installed via tap are available in all Hermes sessions and appear in the 
 | **cogos-dev-tools** | git-forensics, technical-writing, code-quality, systems-architecture, zsh-environment, macos-storage, codex, openclaw-expert | Developer tooling, code quality, shell/storage management, cross-model CLI operation |
 | **cogos-architecture** | corpus-cross-reference | CogOS architecture corpus hygiene — cross-check proposed RFCs/ADRs against the substrate corpus |
 | **myrgic-org** | pr-triage, issue-triage | Org-management skills for the myrgic GitHub org |
-| **cogos-harness** | btw, consolidate, handoff | Session-lifecycle hooks, kernel-vitals proprioception, and the `cogos-kernel` MCP server, plus the three skills that lean on them. Claude-Code-only — see its own README. |
+| **cogos-harness** | btw, consolidate, handoff, memory-janitor | Session-lifecycle hooks, kernel-vitals proprioception, and the `cogos-kernel` MCP server, plus the four skills that lean on them. Claude-Code-only — see its own README. |
 
-**Total: 35 skills across 8 plugin packages** (one of which, cogos-harness, also ships hooks and an MCP server).
+**Total: 36 skills across 8 plugin packages** (one of which, cogos-harness, also ships hooks and an MCP server).
 
 ## Cross-Compatibility
 
@@ -158,8 +158,11 @@ as it's actually installed, not just as it reads in the repo. It:
 - runs every hook script from the **installed cache path** with fixture
   input, once with a reachable kernel and once with `COGOS_KERNEL_URL`
   pointed at a dead port, and checks each one exits 0 with the output shape
-  its own docstring promises (silent for the lifecycle hooks, a structured
-  `<cogos_proprioception>` block for the prompt-submit hook);
+  its own docstring promises: silent for the lifecycle hooks, a structured
+  `<cogos_proprioception>` block for the prompt-submit hook, or — for the
+  memory-janitor Stop hook, exercised against both a healthy and a
+  forced-over-threshold fixture — silence when healthy and a one-line
+  `{"decision": "block", ...}` JSON block when forced over its trigger;
 - confirms nothing escaped the sandbox: the real host's files are
   untouched, and no hook fabricated a fake cog workspace directory;
 - runs `claude plugin validate --strict` against the marketplace manifest;

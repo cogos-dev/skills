@@ -55,6 +55,19 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/memory-janitor.py"],
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
